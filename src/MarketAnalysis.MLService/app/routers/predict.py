@@ -152,6 +152,10 @@ async def predict(
                 top_features=top_features,
             ))
 
+            # Log for monitoring/drift detection
+            from app.routers.monitor import log_prediction
+            log_prediction(category, ensemble, dict(zip(ALL_FEATURES, feature_vector.iloc[0].tolist())))
+
     return PredictResponse(
         predictions=predictions,
         total_tickers=len(stock_map),

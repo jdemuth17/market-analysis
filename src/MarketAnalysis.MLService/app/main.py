@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.db.connection import engine
-from app.routers import health, predict, train, backfill, models
+from app.routers import health, predict, train, backfill, models, monitor
 
 logging.basicConfig(
     level=logging.DEBUG if settings.debug else logging.INFO,
@@ -51,3 +51,4 @@ app.include_router(predict.router, prefix="/api/ml", tags=["Prediction"])
 app.include_router(train.router, prefix="/api/ml", tags=["Training"])
 app.include_router(backfill.router, prefix="/api/ml", tags=["Backfill"])
 app.include_router(models.router, prefix="/api/ml", tags=["Models"])
+app.include_router(monitor.router, prefix="/api/ml", tags=["Monitoring"])

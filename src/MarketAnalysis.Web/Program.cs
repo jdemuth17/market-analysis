@@ -59,6 +59,19 @@ builder.Services.AddScoped<IMarketDataIngestionService, MarketDataIngestionServi
 builder.Services.AddScoped<IReportGenerationService, ReportGenerationService>();
 builder.Services.AddScoped<IDailyScanService, DailyScanService>();
 
+// ----- ML Retraining Service (reuses ML Service HTTP client) -----
+builder.Services.AddHttpClient<IMLRetrainingService, MLRetrainingService>(client =>
+{
+    client.BaseAddress = new Uri(config["MLService:BaseUrl"] ?? "http://localhost:8002");
+    client.Timeout = TimeSpan.FromMinutes(130); // Long timeout for backfill + training
+})
+.AddPolicyHandler(HttpPolicyExtensions
+    .HandleTransientHttpError()
+    .WaitAndRetryAsync(3, i => TimeSpan.FromSeconds(Math.Pow(2, i))))
+.AddPolicyHandler(HttpPolicyExtensions
+    .HandleTransientHttpError()
+    .CircuitBreakerAsync(5, TimeSpan.FromSeconds(30)));
+
 // ----- Hangfire -----
 builder.Services.AddHangfire(hf => hf
     .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
@@ -108,6 +121,20 @@ RecurringJob.AddOrUpdate<IDailyScanService>(
     "daily-market-scan",
     service => service.RunFullScanAsync(CancellationToken.None),
     "0 18 * * 1-5", // 6:00 PM UTC weekdays (adjust to your timezone)
+    new RecurringJobOptions { TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time") });
+
+// Weekly ML retrain: Sundays at 2 AM ET — XGBoost + ensemble (fast, ~10 min)
+RecurringJob.AddOrUpdate<IMLRetrainingService>(
+    "weekly-ml-retrain",
+    service => service.RunRetrainingAsync(new List<string> { "xgboost", "ensemble" }, CancellationToken.None),
+    "0 2 * * 0",
+    new RecurringJobOptions { TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time") });
+
+// Monthly ML retrain: 1st Sunday at 1 AM ET — full XGBoost + LSTM + ensemble (~1 hr)
+RecurringJob.AddOrUpdate<IMLRetrainingService>(
+    "monthly-ml-retrain",
+    service => service.RunRetrainingAsync(new List<string> { "xgboost", "lstm", "ensemble" }, CancellationToken.None),
+    "0 1 1-7 * 0",
     new RecurringJobOptions { TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time") });
 
 app.MapRazorComponents<App>()

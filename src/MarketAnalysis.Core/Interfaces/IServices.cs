@@ -45,3 +45,9 @@ public interface IMLServiceClient
     Task<MLPredictResponseDto> PredictAsync(List<string> tickers, List<ReportCategory> categories, bool includeShap = true);
     Task<bool> HealthCheckAsync();
 }
+
+/// <summary>Triggers ML model retraining via the ML service (backfill + train).</summary>
+public interface IMLRetrainingService
+{
+    Task RunRetrainingAsync(List<string> models, CancellationToken cancellationToken = default);
+}

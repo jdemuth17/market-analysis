@@ -293,6 +293,14 @@ async def _run_training(job_id: str, models: list[str], categories: list[str]):
         with open(summary_path, "w") as f:
             json.dump(summary, f, indent=2, default=str)
 
+        # Archive to history for performance tracking
+        history_dir = model_dir / "history"
+        history_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        history_path = history_dir / f"training_summary_{timestamp}.json"
+        with open(history_path, "w") as f:
+            json.dump(summary, f, indent=2, default=str)
+
         _training_jobs[job_id]["status"] = "completed"
         _training_jobs[job_id]["metrics"] = metrics
 
