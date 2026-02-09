@@ -1,4 +1,5 @@
 using System.Text.Json;
+using MarketAnalysis.Core.DTOs;
 using MarketAnalysis.Core.Entities;
 using MarketAnalysis.Core.Enums;
 using MarketAnalysis.Core.Interfaces;
@@ -14,6 +15,7 @@ public class ReportGenerationService : IReportGenerationService
     private readonly IFundamentalRepository _fundamentalRepo;
     private readonly ISentimentRepository _sentimentRepo;
     private readonly IScanReportRepository _reportRepo;
+    private readonly IMLServiceClient? _mlClient;
     private readonly ILogger<ReportGenerationService> _logger;
 
     public ReportGenerationService(
@@ -23,7 +25,8 @@ public class ReportGenerationService : IReportGenerationService
         IFundamentalRepository fundamentalRepo,
         ISentimentRepository sentimentRepo,
         IScanReportRepository reportRepo,
-        ILogger<ReportGenerationService> logger)
+        ILogger<ReportGenerationService> logger,
+        IMLServiceClient? mlClient = null)
     {
         _stockRepo = stockRepo;
         _priceRepo = priceRepo;
@@ -32,6 +35,7 @@ public class ReportGenerationService : IReportGenerationService
         _sentimentRepo = sentimentRepo;
         _reportRepo = reportRepo;
         _logger = logger;
+        _mlClient = mlClient;
     }
 
     public async Task<List<ScanReport>> GenerateReportsAsync(UserScanConfig config, DateOnly reportDate)
@@ -70,6 +74,36 @@ public class ReportGenerationService : IReportGenerationService
         _logger.LogInformation("Filtered {Count}/{Total} stocks meet criteria",
             filteredStocks.Count, activeStocks.Count);
 
+        // ML scoring path: use ensemble predictions if enabled and ML service available
+        Dictionary<(string ticker, ReportCategory category), MLStockPredictionDto>? mlPredictions = null;
+        if (config.UseMlScoring && _mlClient != null)
+        {
+            try
+            {
+                var mlHealthy = await _mlClient.HealthCheckAsync();
+                if (mlHealthy)
+                {
+                    var tickers = filteredStocks.Select(f => f.stock.Ticker).ToList();
+                    var mlResponse = await _mlClient.PredictAsync(
+                        tickers, config.EnabledCategories.ToList());
+
+                    mlPredictions = mlResponse.Predictions.ToDictionary(
+                        p => (p.Ticker, Enum.Parse<ReportCategory>(p.Category)),
+                        p => p);
+
+                    _logger.LogInformation("ML scoring: received {Count} predictions", mlResponse.Predictions.Count);
+                }
+                else
+                {
+                    _logger.LogWarning("ML service unhealthy, falling back to legacy scoring");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "ML scoring failed, falling back to legacy scoring");
+            }
+        }
+
         var configJson = JsonSerializer.Serialize(config);
 
         foreach (var category in config.EnabledCategories)
@@ -87,11 +121,45 @@ public class ReportGenerationService : IReportGenerationService
 
             foreach (var (stock, latestPrice, fundamental, signals, sentiment) in filteredStocks)
             {
+                // Check for ML prediction first
+                if (mlPredictions != null &&
+                    mlPredictions.TryGetValue((stock.Ticker, category), out var mlPred))
+                {
+                    if (mlPred.EnsembleScore < 30) continue; // Minimum threshold
+
+                    var mlReasoning = new Dictionary<string, object>
+                    {
+                        ["scoringMethod"] = "ml_ensemble",
+                        ["xgboostScore"] = mlPred.XgboostScore,
+                        ["lstmScore"] = mlPred.LstmScore ?? 0,
+                        ["ensembleScore"] = mlPred.EnsembleScore,
+                        ["modelConfidence"] = mlPred.Confidence,
+                        ["topDrivers"] = mlPred.TopFeatures.Select(f =>
+                            $"{f.Feature} (value={f.Value:F2}) contributed {f.Impact:+0.0;-0.0} points").ToList(),
+                    };
+
+                    entries.Add(new ScanReportEntry
+                    {
+                        StockId = stock.Id,
+                        CompositeScore = mlPred.EnsembleScore,
+                        TechnicalScore = mlPred.XgboostScore, // XGBoost as technical proxy
+                        FundamentalScore = mlPred.LstmScore ?? mlPred.XgboostScore,
+                        SentimentScore = mlPred.Confidence * 100,
+                        PatternDetected = mlPred.TopFeatures.FirstOrDefault()?.Feature,
+                        Direction = mlPred.Confidence >= 0.5 ? "Bullish" : "Bearish",
+                        CurrentPrice = latestPrice!.Close,
+                        Reasoning = JsonSerializer.Serialize(mlReasoning),
+                    });
+                    continue;
+                }
+
+                // Legacy scoring path
                 var scores = ScoreForCategory(category, stock, latestPrice!, fundamental, signals, sentiment, config);
                 if (scores.composite < 30) continue; // Minimum threshold
 
                 var reasoning = new Dictionary<string, object>
                 {
+                    ["scoringMethod"] = "legacy_weighted",
                     ["technicalScore"] = scores.technical,
                     ["fundamentalScore"] = scores.fundamental,
                     ["sentimentScore"] = scores.sentiment,
@@ -124,7 +192,9 @@ public class ReportGenerationService : IReportGenerationService
             await _reportRepo.AddAsync(report);
             reports.Add(report);
 
-            _logger.LogInformation("Report {Category}: {Matches} matches", category, ranked.Count);
+            _logger.LogInformation("Report {Category}: {Matches} matches ({Method})",
+                category, ranked.Count,
+                mlPredictions != null ? "ML" : "legacy");
         }
 
         return reports;

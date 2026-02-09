@@ -41,6 +41,19 @@ builder.Services.AddHttpClient<IPythonServiceClient, PythonServiceClient>(client
     .HandleTransientHttpError()
     .CircuitBreakerAsync(5, TimeSpan.FromSeconds(30)));
 
+// ----- ML Service HTTP Client with Polly -----
+builder.Services.AddHttpClient<IMLServiceClient, MLServiceClient>(client =>
+{
+    client.BaseAddress = new Uri(config["MLService:BaseUrl"] ?? "http://localhost:8002");
+    client.Timeout = TimeSpan.FromMinutes(2);
+})
+.AddPolicyHandler(HttpPolicyExtensions
+    .HandleTransientHttpError()
+    .WaitAndRetryAsync(3, i => TimeSpan.FromSeconds(Math.Pow(2, i))))
+.AddPolicyHandler(HttpPolicyExtensions
+    .HandleTransientHttpError()
+    .CircuitBreakerAsync(5, TimeSpan.FromSeconds(30)));
+
 // ----- Business Services -----
 builder.Services.AddScoped<IMarketDataIngestionService, MarketDataIngestionService>();
 builder.Services.AddScoped<IReportGenerationService, ReportGenerationService>();

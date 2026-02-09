@@ -195,9 +195,83 @@ async def _run_training(job_id: str, models: list[str], categories: list[str]):
                     f"time={cat_metrics['training_time_sec']}s"
                 )
 
+        # Ensemble calibration: learn optimal XGBoost/LSTM weights per category
         if "ensemble" in models:
-            logger.info("Ensemble calibration not yet implemented (Phase 5)")
-            metrics["ensemble"] = {"status": "not_implemented"}
+            logger.info("Calibrating ensemble weights...")
+            import numpy as np
+            import torch
+            from app.models.ensemble import EnsembleScorer
+
+            ensemble_scorer = EnsembleScorer()
+            ensemble_metrics = {}
+
+            for category in categories:
+                if category not in CATEGORIES:
+                    continue
+
+                has_xgb = category in model_registry.xgboost_models
+                has_lstm = category in model_registry.lstm_models
+
+                if not (has_xgb and has_lstm):
+                    logger.info(f"Ensemble {category}: skipping (need both XGBoost + LSTM)")
+                    continue
+
+                label_col = f"label_{category.lower()}"
+                if label_col not in dataset.columns:
+                    continue
+
+                # Use the last 20% of data as calibration set (same as val split)
+                valid_mask = dataset[label_col].notna()
+                cal_data = dataset[valid_mask].reset_index(drop=True)
+                split_idx = int(len(cal_data) * 0.8)
+                cal_set = cal_data.iloc[split_idx:]
+
+                if len(cal_set) < 50:
+                    logger.warning(f"Too few calibration samples for {category}")
+                    continue
+
+                # XGBoost predictions on calibration set
+                X_cal = normalizer.transform(cal_set[feature_cols])
+                xgb_model = model_registry.xgboost_models[category]
+                xgb_preds = xgb_model.predict_proba(X_cal)[:, 1]
+
+                # LSTM predictions on calibration set (build sequences per-stock)
+                from app.features.sequence_builder import build_training_sequences
+                X_seq_cal, y_cls_cal, _ = build_training_sequences(
+                    dataset=cal_set,
+                    feature_cols=feature_cols,
+                    label_col=label_col,
+                )
+
+                if len(X_seq_cal) < 50:
+                    logger.warning(f"Too few LSTM calibration sequences for {category}")
+                    continue
+
+                lstm_model = model_registry.lstm_models[category]
+                lstm_model.eval()
+                device = next(lstm_model.parameters()).device
+                with torch.no_grad():
+                    tensor = torch.FloatTensor(X_seq_cal).to(device)
+                    prob, _ = lstm_model(tensor)
+                    lstm_preds = prob.squeeze().cpu().numpy()
+
+                # Align lengths (LSTM sequences may be shorter)
+                min_len = min(len(xgb_preds), len(lstm_preds), len(y_cls_cal))
+                xgb_cal = xgb_preds[-min_len:]
+                lstm_cal = lstm_preds[-min_len:]
+                y_cal = y_cls_cal[-min_len:].astype(int)
+
+                weights = ensemble_scorer.calibrate(category, xgb_cal, lstm_cal, y_cal)
+                ensemble_metrics[category] = weights
+
+            if ensemble_scorer.weights:
+                weights_path = model_dir / "ensemble_weights.json"
+                ensemble_scorer.save(weights_path)
+                model_registry.ensemble_weights = ensemble_scorer.weights
+                metrics["ensemble"] = ensemble_metrics
+                logger.info(f"Ensemble calibrated for {list(ensemble_scorer.weights.keys())}")
+            else:
+                metrics["ensemble"] = {"status": "no_categories_calibrated"}
 
         # Save overall training summary
         summary = {
@@ -212,6 +286,7 @@ async def _run_training(job_id: str, models: list[str], categories: list[str]):
                 c for c in categories
                 if f"lstm_{c.lower()}" in metrics
             ],
+            "ensemble_categories": list(model_registry.ensemble_weights.keys()),
             "metrics": metrics,
         }
         summary_path = model_dir / "training_summary.json"

@@ -263,3 +263,29 @@ public record ScannerResultsDto(
     List<BestProspectDto> BestProspects,
     DateTime GeneratedAtUtc
 );
+
+// --- ML Service DTOs ---
+
+public record MLFeatureImpactDto(
+    string Feature,
+    double Impact,
+    double Value
+);
+
+public record MLStockPredictionDto(
+    string Ticker,
+    string Category,
+    double XgboostScore,
+    double? LstmScore,
+    double EnsembleScore,
+    double? PredictedReturnPct,
+    double Confidence,
+    List<MLFeatureImpactDto> TopFeatures
+);
+
+public record MLPredictResponseDto(
+    List<MLStockPredictionDto> Predictions,
+    int TotalTickers,
+    List<string> CategoriesScored,
+    string? ModelVersion
+);

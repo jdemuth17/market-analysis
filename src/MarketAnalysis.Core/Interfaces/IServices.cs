@@ -38,3 +38,10 @@ public interface IDailyScanService
 {
     Task RunFullScanAsync(CancellationToken cancellationToken = default);
 }
+
+/// <summary>HTTP client for communicating with the ML scoring service.</summary>
+public interface IMLServiceClient
+{
+    Task<MLPredictResponseDto> PredictAsync(List<string> tickers, List<ReportCategory> categories, bool includeShap = true);
+    Task<bool> HealthCheckAsync();
+}

@@ -61,6 +61,12 @@ public class UserScanConfig
         IndicatorType.OBV,
     };
 
+    /// <summary>
+    /// When true, uses ML ensemble scoring (XGBoost + LSTM) instead of
+    /// the legacy weighted-average scoring. Allows side-by-side comparison.
+    /// </summary>
+    public bool UseMlScoring { get; set; } = false;
+
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 }
