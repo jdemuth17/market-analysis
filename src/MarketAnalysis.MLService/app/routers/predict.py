@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.connection import get_session
 from app.db.queries import get_stocks_by_tickers
-from app.features.feature_builder import FeatureBuilder
+from app.features.feature_builder import FeatureBuilder, ALL_FEATURES
 from app.models.model_registry import model_registry, CATEGORIES
 
 logger = logging.getLogger(__name__)
@@ -44,6 +44,7 @@ class PredictResponse(BaseModel):
     predictions: list[StockPrediction]
     total_tickers: int
     categories_scored: list[str]
+    model_version: Optional[str] = None
 
 
 @router.post("/predict", response_model=PredictResponse)
@@ -63,6 +64,12 @@ async def predict(
     if not valid_categories:
         raise HTTPException(status_code=400, detail=f"Invalid categories. Must be one of: {CATEGORIES}")
 
+    # Validate tickers list
+    if not request.tickers:
+        raise HTTPException(status_code=400, detail="At least one ticker is required")
+    if len(request.tickers) > 100:
+        raise HTTPException(status_code=400, detail="Maximum 100 tickers per request")
+
     # Look up stocks
     stocks = await get_stocks_by_tickers(session, request.tickers)
     if not stocks:
@@ -70,6 +77,9 @@ async def predict(
 
     stock_map = {s.Ticker: s for s in stocks}
     as_of = request.as_of_date or date.today()
+
+    # Load normalizer if available
+    normalizer = model_registry.get_normalizer()
 
     # Build features
     builder = FeatureBuilder(session)
@@ -81,21 +91,33 @@ async def predict(
             logger.warning(f"Insufficient data for {ticker}, skipping")
             continue
 
+        # Ensure feature columns match expected order
+        missing_cols = [c for c in ALL_FEATURES if c not in feature_vector.columns]
+        for col in missing_cols:
+            feature_vector[col] = 0.0
+        feature_vector = feature_vector[ALL_FEATURES]
+
+        # Normalize features (match training distribution)
+        if normalizer is not None:
+            feature_normalized = normalizer.transform(feature_vector)
+        else:
+            feature_normalized = feature_vector
+
         for category in valid_categories:
             if category not in model_registry.xgboost_models:
                 continue
 
             # XGBoost prediction
             xgb_model = model_registry.xgboost_models[category]
-            xgb_prob = float(xgb_model.predict_proba(feature_vector)[:, 1][0])
+            xgb_prob = float(xgb_model.predict_proba(feature_normalized)[:, 1][0])
 
-            # SHAP explanations
+            # SHAP explanations (on normalized features, mapped to original names)
             top_features = []
             if request.include_shap:
                 from app.models.xgboost_model import XGBoostScorer
                 scorer = XGBoostScorer(category)
                 scorer.model = xgb_model
-                shap_results = scorer.get_shap_explanations(feature_vector, top_n=5)
+                shap_results = scorer.get_shap_explanations(feature_normalized, top_n=5)
                 if shap_results and shap_results[0]:
                     top_features = [
                         FeatureImpact(**f) for f in shap_results[0]
@@ -134,4 +156,5 @@ async def predict(
         predictions=predictions,
         total_tickers=len(stock_map),
         categories_scored=valid_categories,
+        model_version=model_registry.get_training_date(),
     )
