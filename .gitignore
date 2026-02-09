@@ -1,0 +1,52 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprefs
+.vs/
+*.csproj.user
+publish/
+artifacts/
+TestResults/
+
+## Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+ENV/
+.env
+*.egg-info/
+dist/
+build/
+
+## Python service caches & downloaded models
+src/MarketAnalysis.PythonService/.cache/
+src/MarketAnalysis.PythonService/finbert_model/
+src/MarketAnalysis.PythonService/finbert-sentiment/
+
+## IDE / Editor
+.vs/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+## Claude
+.claude/
+
+## OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+## Secrets / local config
+appsettings.Development.json
+*.pfx
+*.pem

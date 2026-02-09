@@ -1,0 +1,209 @@
+@page "/config"
+
+@inject IUserScanConfigRepository ConfigRepo
+@inject ISnackbar Snackbar
+
+<PageTitle>Configuration - Market Analysis</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">Scan Configuration</MudText>
+
+@if (_loading)
+{
+    <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+}
+else if (_config is not null)
+{
+    <MudTabs Elevation="2" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pa-6">
+        <MudTabPanel Text="Price & Market">
+            <MudGrid>
+                <MudItem xs="12" md="6">
+                    <MudNumericField @bind-Value="_config.PriceRangeMin" Label="Min Price ($)" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudNumericField @bind-Value="_config.PriceRangeMax" Label="Max Price ($)" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudNumericField @bind-Value="_config.MinMarketCap" Label="Min Market Cap ($)" Variant="Variant.Outlined" />
+                </MudItem>
+            </MudGrid>
+        </MudTabPanel>
+
+        <MudTabPanel Text="Fundamentals">
+            <MudGrid>
+                <MudItem xs="12" md="4">
+                    <MudNumericField @bind-Value="_config.MaxPERatio" Label="Max P/E Ratio" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudNumericField @bind-Value="_config.MaxDebtToEquity" Label="Max Debt/Equity" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudNumericField @bind-Value="_config.MinProfitMargin" Label="Min Profit Margin" Variant="Variant.Outlined" Step="0.01" />
+                </MudItem>
+            </MudGrid>
+        </MudTabPanel>
+
+        <MudTabPanel Text="Weights">
+            <MudGrid>
+                <MudItem xs="12" md="4">
+                    <MudText Typo="Typo.subtitle1">Technical Weight: @_config.TechnicalWeight.ToString("P0")</MudText>
+                    <MudSlider @bind-Value="_config.TechnicalWeight" Min="0" Max="1" Step="0.05" Color="Color.Primary" />
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudText Typo="Typo.subtitle1">Fundamental Weight: @_config.FundamentalWeight.ToString("P0")</MudText>
+                    <MudSlider @bind-Value="_config.FundamentalWeight" Min="0" Max="1" Step="0.05" Color="Color.Secondary" />
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudText Typo="Typo.subtitle1">Sentiment Weight: @_config.SentimentWeight.ToString("P0")</MudText>
+                    <MudSlider @bind-Value="_config.SentimentWeight" Min="0" Max="1" Step="0.05" Color="Color.Tertiary" />
+                </MudItem>
+                <MudItem xs="12">
+                    @{ var totalWeight = _config.TechnicalWeight + _config.FundamentalWeight + _config.SentimentWeight; }
+                    <MudAlert Severity="@(Math.Abs(totalWeight - 1.0) < 0.01 ? Severity.Success : Severity.Warning)">
+                        Total weight: @totalWeight.ToString("P0") @(Math.Abs(totalWeight - 1.0) < 0.01 ? "✓" : "(should equal 100%)")
+                    </MudAlert>
+                </MudItem>
+            </MudGrid>
+        </MudTabPanel>
+
+        <MudTabPanel Text="Sentiment">
+            <MudGrid>
+                <MudItem xs="12" md="6">
+                    <MudNumericField @bind-Value="_config.MinSentimentSampleSize" Label="Min Sentiment Samples" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudText Typo="Typo.subtitle1" Class="mb-2">Enabled Sources</MudText>
+                    @foreach (var source in Enum.GetValues<SentimentSource>())
+                    {
+                        var isEnabled = _enabledSources.Contains(source);
+                        <MudCheckBox T="bool" Value="isEnabled" ValueChanged="(v) => ToggleSource(source, v)" Label="@source.ToString()" />
+                    }
+                </MudItem>
+            </MudGrid>
+        </MudTabPanel>
+
+        <MudTabPanel Text="Patterns">
+            <MudText Typo="Typo.subtitle1" Class="mb-2">Enabled Chart Patterns</MudText>
+            <MudGrid>
+                @foreach (var pattern in Enum.GetValues<PatternType>())
+                {
+                    var isEnabled = _enabledPatterns.Contains(pattern);
+                    <MudItem xs="12" md="4">
+                        <MudCheckBox T="bool" Value="isEnabled" ValueChanged="(v) => TogglePattern(pattern, v)" Label="@pattern.ToString()" />
+                    </MudItem>
+                }
+            </MudGrid>
+        </MudTabPanel>
+
+        <MudTabPanel Text="Categories">
+            <MudText Typo="Typo.subtitle1" Class="mb-2">Enabled Report Categories</MudText>
+            @foreach (var cat in Enum.GetValues<ReportCategory>())
+            {
+                var isEnabled = _enabledCategories.Contains(cat);
+                <MudCheckBox T="bool" Value="isEnabled" ValueChanged="(v) => ToggleCategory(cat, v)" Label="@cat.ToString()" />
+            }
+        </MudTabPanel>
+    </MudTabs>
+
+    <MudPaper Class="pa-4 mt-4 d-flex justify-end" Elevation="0">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveConfig"
+                   StartIcon="@Icons.Material.Filled.Save" Disabled="_saving">
+            @if (_saving) { <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" /> }
+            Save Configuration
+        </MudButton>
+    </MudPaper>
+}
+
+@code {
+    private ConfigModel? _config;
+    private bool _loading = true;
+    private bool _saving;
+    private HashSet<PatternType> _enabledPatterns = new();
+    private HashSet<ReportCategory> _enabledCategories = new();
+    private HashSet<SentimentSource> _enabledSources = new();
+
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        var entity = await ConfigRepo.GetDefaultAsync();
+        if (entity is not null)
+        {
+            _config = new ConfigModel
+            {
+                Id = entity.Id,
+                PriceRangeMin = entity.PriceRangeMin,
+                PriceRangeMax = entity.PriceRangeMax,
+                MinMarketCap = entity.MinMarketCap,
+                MaxPERatio = entity.MaxPERatio,
+                MaxDebtToEquity = entity.MaxDebtToEquity,
+                MinProfitMargin = entity.MinProfitMargin,
+                TechnicalWeight = entity.TechnicalWeight,
+                FundamentalWeight = entity.FundamentalWeight,
+                SentimentWeight = entity.SentimentWeight,
+                MinSentimentSampleSize = entity.MinSentimentSampleSize,
+            };
+            _enabledPatterns = new HashSet<PatternType>(entity.EnabledPatterns);
+            _enabledCategories = new HashSet<ReportCategory>(entity.EnabledCategories);
+            _enabledSources = new HashSet<SentimentSource>(entity.EnabledSentimentSources);
+        }
+        _loading = false;
+    }
+
+    private void TogglePattern(PatternType p, bool enabled)
+    { if (enabled) _enabledPatterns.Add(p); else _enabledPatterns.Remove(p); }
+
+    private void ToggleCategory(ReportCategory c, bool enabled)
+    { if (enabled) _enabledCategories.Add(c); else _enabledCategories.Remove(c); }
+
+    private void ToggleSource(SentimentSource s, bool enabled)
+    { if (enabled) _enabledSources.Add(s); else _enabledSources.Remove(s); }
+
+    private async Task SaveConfig()
+    {
+        if (_config is null) return;
+        _saving = true;
+        try
+        {
+            var entity = await ConfigRepo.GetByIdAsync(_config.Id);
+            if (entity is null) return;
+
+            entity.PriceRangeMin = _config.PriceRangeMin;
+            entity.PriceRangeMax = _config.PriceRangeMax;
+            entity.MinMarketCap = _config.MinMarketCap;
+            entity.MaxPERatio = _config.MaxPERatio;
+            entity.MaxDebtToEquity = _config.MaxDebtToEquity;
+            entity.MinProfitMargin = _config.MinProfitMargin;
+            entity.TechnicalWeight = _config.TechnicalWeight;
+            entity.FundamentalWeight = _config.FundamentalWeight;
+            entity.SentimentWeight = _config.SentimentWeight;
+            entity.MinSentimentSampleSize = _config.MinSentimentSampleSize;
+            entity.EnabledPatterns = _enabledPatterns.ToArray();
+            entity.EnabledCategories = _enabledCategories.ToArray();
+            entity.EnabledSentimentSources = _enabledSources.ToArray();
+            entity.UpdatedAtUtc = DateTime.UtcNow;
+
+            await ConfigRepo.UpdateAsync(entity);
+            Snackbar.Add("Configuration saved!", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error saving: {ex.Message}", Severity.Error);
+        }
+        finally { _saving = false; }
+    }
+
+    private class ConfigModel
+    {
+        public int Id { get; set; }
+        public decimal? PriceRangeMin { get; set; }
+        public decimal? PriceRangeMax { get; set; }
+        public decimal? MinMarketCap { get; set; }
+        public double? MaxPERatio { get; set; }
+        public double? MaxDebtToEquity { get; set; }
+        public double? MinProfitMargin { get; set; }
+        public double TechnicalWeight { get; set; }
+        public double FundamentalWeight { get; set; }
+        public double SentimentWeight { get; set; }
+        public int MinSentimentSampleSize { get; set; }
+    }
+}

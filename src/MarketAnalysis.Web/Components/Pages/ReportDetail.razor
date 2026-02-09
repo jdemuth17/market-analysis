@@ -1,0 +1,157 @@
+@page "/reports/{CategorySlug}"
+
+@inject NavigationManager Nav
+@inject IScanReportRepository ReportRepo
+@inject ISnackbar Snackbar
+
+<PageTitle>@_categoryName Report - Market Analysis</PageTitle>
+
+<MudBreadcrumbs Items="_breadcrumbs" Class="mb-2" />
+<MudText Typo="Typo.h4" Class="mb-4">@_categoryName Report</MudText>
+
+@if (_loading)
+{
+    <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+}
+else if (_report is not null)
+{
+    <MudGrid Class="mb-4">
+        <MudItem xs="12" md="4">
+            <MudPaper Class="pa-3" Elevation="1">
+                <MudText Typo="Typo.caption">Report Date</MudText>
+                <MudText Typo="Typo.h6">@_report.ReportDate.ToString("MMM dd, yyyy")</MudText>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="4">
+            <MudPaper Class="pa-3" Elevation="1">
+                <MudText Typo="Typo.caption">Stocks Scanned</MudText>
+                <MudText Typo="Typo.h6">@_report.TotalStocksScanned</MudText>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="4">
+            <MudPaper Class="pa-3" Elevation="1">
+                <MudText Typo="Typo.caption">Matches Found</MudText>
+                <MudText Typo="Typo.h6" Color="Color.Success">@_report.TotalMatches</MudText>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+    <MudDataGrid Items="@_report.Entries" Dense="true" Hover="true" Striped="true"
+                 RowClick="@((DataGridRowClickEventArgs<ScanReportEntryDto> args) => Nav.NavigateTo($"/stock/{args.Item.Ticker}"))"
+                 RowStyle="cursor:pointer;">
+        <Columns>
+            <PropertyColumn Property="x => x.Rank" Title="#" />
+            <PropertyColumn Property="x => x.Ticker" Title="Ticker">
+                <CellTemplate>
+                    <MudText Typo="Typo.body2"><strong>@context.Item.Ticker</strong></MudText>
+                </CellTemplate>
+            </PropertyColumn>
+            <PropertyColumn Property="x => x.StockName" Title="Name" />
+            <PropertyColumn Property="x => x.CurrentPrice" Title="Price" Format="C2" />
+            <PropertyColumn Property="x => x.CompositeScore" Title="Score" SortBy="x => x.CompositeScore">
+                <CellTemplate>
+                    <MudChip T="string" Size="Size.Small"
+                             Color="@(context.Item.CompositeScore >= 70 ? Color.Success : context.Item.CompositeScore >= 50 ? Color.Warning : Color.Default)">
+                        @context.Item.CompositeScore.ToString("F1")
+                    </MudChip>
+                </CellTemplate>
+            </PropertyColumn>
+            <PropertyColumn Property="x => x.TechnicalScore" Title="Technical" Format="F1" />
+            <PropertyColumn Property="x => x.FundamentalScore" Title="Fundamental" Format="F1" />
+            <PropertyColumn Property="x => x.SentimentScore" Title="Sentiment" Format="F1" />
+            <PropertyColumn Property="x => x.PatternDetected" Title="Pattern" />
+            <PropertyColumn Property="x => x.Direction" Title="Direction">
+                <CellTemplate>
+                    @if (context.Item.Direction == "Bullish")
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Success">Bullish</MudChip>
+                    }
+                    else if (context.Item.Direction == "Bearish")
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Error">Bearish</MudChip>
+                    }
+                    else
+                    {
+                        <MudText>-</MudText>
+                    }
+                </CellTemplate>
+            </PropertyColumn>
+        </Columns>
+    </MudDataGrid>
+}
+else
+{
+    <MudAlert Severity="Severity.Info">No report available for this category. Run a scan first.</MudAlert>
+}
+
+@code {
+    [Parameter] public string CategorySlug { get; set; } = "";
+
+    private ScanReportDto? _report;
+    private bool _loading = true;
+    private string _categoryName = "";
+    private List<BreadcrumbItem> _breadcrumbs = new();
+
+
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var category = CategorySlug?.ToLower() switch
+        {
+            "daytrade" => ReportCategory.DayTrade,
+            "swingtrade" => ReportCategory.SwingTrade,
+            "shortterm" => ReportCategory.ShortTermHold,
+            "longterm" => ReportCategory.LongTermHold,
+            _ => (ReportCategory?)null,
+        };
+
+        _categoryName = category switch
+        {
+            ReportCategory.DayTrade => "Day Trade",
+            ReportCategory.SwingTrade => "Swing Trade",
+            ReportCategory.ShortTermHold => "Short-Term Hold",
+            ReportCategory.LongTermHold => "Long-Term Hold",
+            _ => "Unknown",
+        };
+
+        _breadcrumbs = new()
+        {
+            new("Dashboard", href: "/"),
+            new(_categoryName, href: null, disabled: true),
+        };
+
+        if (category is null)
+        {
+            _loading = false;
+            return;
+        }
+
+        _loading = true;
+        try
+        {
+            var latest = await ReportRepo.GetLatestByCategoryAsync(category.Value);
+            if (latest is not null)
+            {
+                var full = await ReportRepo.GetWithEntriesAsync(latest.Id);
+                if (full is not null)
+                {
+                    var entries = full.Entries.OrderBy(e => e.Rank).Select(e => new ScanReportEntryDto(
+                        e.Id, e.Stock.Ticker, e.Stock.Name, e.CurrentPrice,
+                        e.CompositeScore, e.TechnicalScore, e.FundamentalScore, e.SentimentScore,
+                        e.Rank, e.PatternDetected, e.Direction, null)).ToList();
+
+                    _report = new ScanReportDto(full.Id, full.ReportDate, full.Category,
+                        full.GeneratedAtUtc, full.TotalStocksScanned, full.TotalMatches, entries);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+}

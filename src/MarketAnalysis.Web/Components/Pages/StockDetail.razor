@@ -1,0 +1,241 @@
+@page "/stock/{Ticker}"
+
+@using ApexCharts
+@inject IStockRepository StockRepo
+@inject IPriceHistoryRepository PriceRepo
+@inject ITechnicalSignalRepository TechRepo
+@inject IFundamentalRepository FundRepo
+@inject ISentimentRepository SentRepo
+@inject ISnackbar Snackbar
+
+<PageTitle>@Ticker - Market Analysis</PageTitle>
+
+<MudBreadcrumbs Items="_breadcrumbs" Class="mb-2" />
+<MudText Typo="Typo.h4" Class="mb-4">@_detail?.Name (@Ticker)</MudText>
+
+@if (_loading)
+{
+    <MudProgressLinear Color="MudBlazor.Color.Primary" Indeterminate="true" />
+}
+else if (_detail is not null)
+{
+    <MudGrid>
+        <!-- Stock Info Card -->
+        <MudItem xs="12" md="4">
+            <MudCard Elevation="2" Class="mb-3">
+                <MudCardContent>
+                    <MudText Typo="Typo.h5" Color="MudBlazor.Color.Primary">@(_detail.CurrentPrice?.ToString("C2") ?? "N/A")</MudText>
+                    <MudDivider Class="my-2" />
+                    <MudSimpleTable Dense="true">
+                        <tbody>
+                            <tr><td>Sector</td><td>@(_detail.Sector ?? "N/A")</td></tr>
+                            <tr><td>Industry</td><td>@(_detail.Industry ?? "N/A")</td></tr>
+                            <tr><td>Exchange</td><td>@(_detail.Exchange ?? "N/A")</td></tr>
+                            <tr><td>Market Cap</td><td>@(_detail.MarketCap?.ToString("C0") ?? "N/A")</td></tr>
+                        </tbody>
+                    </MudSimpleTable>
+                </MudCardContent>
+            </MudCard>
+
+            <!-- Fundamentals -->
+            @if (_detail.LatestFundamentals is not null)
+            {
+                var f = _detail.LatestFundamentals;
+                <MudCard Elevation="2" Class="mb-3">
+                    <MudCardHeader><CardHeaderContent><MudText Typo="Typo.h6">Fundamentals</MudText></CardHeaderContent></MudCardHeader>
+                    <MudCardContent>
+                        <MudSimpleTable Dense="true">
+                            <tbody>
+                                <tr><td>P/E Ratio</td><td>@(f.PeRatio?.ToString("F2") ?? "-")</td></tr>
+                                <tr><td>Forward P/E</td><td>@(f.ForwardPe?.ToString("F2") ?? "-")</td></tr>
+                                <tr><td>PEG Ratio</td><td>@(f.PegRatio?.ToString("F2") ?? "-")</td></tr>
+                                <tr><td>Debt/Equity</td><td>@(f.DebtToEquity?.ToString("F2") ?? "-")</td></tr>
+                                <tr><td>Profit Margin</td><td>@(f.ProfitMargin?.ToString("P2") ?? "-")</td></tr>
+                                <tr><td>ROE</td><td>@(f.ReturnOnEquity?.ToString("P2") ?? "-")</td></tr>
+                                <tr><td>Beta</td><td>@(f.Beta?.ToString("F2") ?? "-")</td></tr>
+                                <tr><td>Dividend Yield</td><td>@(f.DividendYield?.ToString("P2") ?? "-")</td></tr>
+                                <tr><td>Recommendation</td><td>@(f.RecommendationKey ?? "-")</td></tr>
+                            </tbody>
+                        </MudSimpleTable>
+                    </MudCardContent>
+                </MudCard>
+            }
+        </MudItem>
+
+        <!-- Chart -->
+        <MudItem xs="12" md="8">
+            <MudCard Elevation="2" Class="mb-3">
+                <MudCardHeader><CardHeaderContent><MudText Typo="Typo.h6">Price Chart</MudText></CardHeaderContent></MudCardHeader>
+                <MudCardContent>
+                    @if (_chartData.Any())
+                    {
+                        <ApexChart TItem="CandleData" Title="" Height="400"
+                                   XAxisType="XAxisType.Datetime"
+                                   Options="_chartOptions">
+                            <ApexCandleSeries TItem="CandleData"
+                                Items="_chartData"
+                                Name="Price"
+                                XValue="e => e.Date"
+                                OpenValue="e => e.Open"
+                                HighValue="e => e.High"
+                                LowValue="e => e.Low"
+                                CloseValue="e => e.Close" />
+                        </ApexChart>
+                    }
+                    else
+                    {
+                        <MudText>No price data available.</MudText>
+                    }
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+
+        <!-- Patterns -->
+        <MudItem xs="12" md="6">
+            <MudCard Elevation="2" Class="mb-3">
+                <MudCardHeader><CardHeaderContent><MudText Typo="Typo.h6">Detected Patterns</MudText></CardHeaderContent></MudCardHeader>
+                <MudCardContent>
+                    @if (_detail.RecentPatterns.Any())
+                    {
+                        @foreach (var p in _detail.RecentPatterns)
+                        {
+                            <MudChip T="string" Color="@(p.Direction == "Bullish" ? MudBlazor.Color.Success : MudBlazor.Color.Error)" Size="MudBlazor.Size.Small" Class="mr-1 mb-1">
+                                @p.PatternType (@(p.Confidence.ToString("P0")))
+                            </MudChip>
+                        }
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.body2">No patterns detected recently.</MudText>
+                    }
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+
+        <!-- Sentiment -->
+        <MudItem xs="12" md="6">
+            <MudCard Elevation="2" Class="mb-3">
+                <MudCardHeader><CardHeaderContent><MudText Typo="Typo.h6">Sentiment</MudText></CardHeaderContent></MudCardHeader>
+                <MudCardContent>
+                    @if (_detail.RecentSentiment.Any())
+                    {
+                        @foreach (var s in _detail.RecentSentiment)
+                        {
+                            <MudText Typo="Typo.subtitle2">@s.Source (@s.SampleSize samples)</MudText>
+                            <MudProgressLinear Color="MudBlazor.Color.Success" Value="@(s.PositiveScore * 100)" Max="100" Class="mb-1" />
+                            <MudGrid>
+                                <MudItem xs="4"><MudText Typo="Typo.caption" Color="MudBlazor.Color.Success">Positive: @s.PositiveScore.ToString("P1")</MudText></MudItem>
+                                <MudItem xs="4"><MudText Typo="Typo.caption">Neutral: @s.NeutralScore.ToString("P1")</MudText></MudItem>
+                                <MudItem xs="4"><MudText Typo="Typo.caption" Color="MudBlazor.Color.Error">Negative: @s.NegativeScore.ToString("P1")</MudText></MudItem>
+                            </MudGrid>
+                            <MudDivider Class="my-2" />
+                        }
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.body2">No sentiment data available.</MudText>
+                    }
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+    </MudGrid>
+}
+else
+{
+    <MudAlert Severity="Severity.Warning">Stock not found.</MudAlert>
+}
+
+@code {
+    [Parameter] public string Ticker { get; set; } = "";
+
+    private StockDetailDto? _detail;
+    private bool _loading = true;
+    private List<CandleData> _chartData = new();
+    private List<BreadcrumbItem> _breadcrumbs = new();
+    private ApexChartOptions<CandleData> _chartOptions = new();
+
+
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _breadcrumbs = new()
+        {
+            new("Dashboard", href: "/"),
+            new(Ticker, href: null, disabled: true),
+        };
+
+        _chartOptions = new ApexChartOptions<CandleData>
+        {
+            Chart = new Chart { Background = "transparent" },
+            Theme = new Theme { Mode = Mode.Dark },
+        };
+
+        _loading = true;
+        try
+        {
+            var stock = await StockRepo.GetByTickerAsync(Ticker.ToUpperInvariant());
+            if (stock is null) { _loading = false; return; }
+
+            var prices = await PriceRepo.GetByStockAsync(stock.Id, 180);
+            var signals = await TechRepo.GetByStockAsync(stock.Id, 30);
+            var fundamental = await FundRepo.GetLatestByStockAsync(stock.Id);
+            var sentiment = await SentRepo.GetLatestByStockAsync(stock.Id);
+
+            var priceDtos = prices.OrderBy(p => p.Date)
+                .Select(p => new OHLCVBarDto(p.Date, p.Open, p.High, p.Low, p.Close, p.AdjClose, p.Volume)).ToList();
+
+            _chartData = priceDtos.Select(p => new CandleData
+            {
+                Date = p.Date.ToDateTime(TimeOnly.MinValue),
+                Open = p.Open,
+                High = p.High,
+                Low = p.Low,
+                Close = p.Close,
+            }).ToList();
+
+            var patternDtos = signals.Select(s => new DetectedPatternDto(
+                s.PatternType.ToString(), s.Direction.ToString(), s.Confidence,
+                s.StartDate, s.EndDate,
+                System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, double>>(s.KeyPriceLevels ?? "{}") ?? new(),
+                s.Status, null)).ToList();
+
+            FundamentalDataDto? fundDto = null;
+            if (fundamental is not null)
+            {
+                fundDto = new FundamentalDataDto(stock.Ticker, stock.Name, stock.Sector, stock.Industry, stock.Exchange,
+                    fundamental.PeRatio, fundamental.ForwardPe, fundamental.PegRatio, fundamental.PriceToBook,
+                    null, null, fundamental.DebtToEquity, fundamental.ProfitMargin, fundamental.OperatingMargin,
+                    fundamental.ReturnOnEquity, fundamental.FreeCashFlow.HasValue ? (double)fundamental.FreeCashFlow : null,
+                    fundamental.DividendYield, fundamental.Revenue.HasValue ? (double)fundamental.Revenue : null,
+                    fundamental.MarketCap.HasValue ? (double)fundamental.MarketCap : null,
+                    fundamental.Beta, fundamental.FiftyTwoWeekHigh.HasValue ? (double)fundamental.FiftyTwoWeekHigh : null,
+                    fundamental.FiftyTwoWeekLow.HasValue ? (double)fundamental.FiftyTwoWeekLow : null,
+                    fundamental.CurrentPrice.HasValue ? (double)fundamental.CurrentPrice : null,
+                    fundamental.TargetMeanPrice.HasValue ? (double)fundamental.TargetMeanPrice : null,
+                    fundamental.RecommendationKey);
+            }
+
+            var sentDtos = sentiment.Select(s => new TickerSentimentDto(
+                stock.Ticker, s.Source.ToString(), s.PositiveScore, s.NegativeScore, s.NeutralScore,
+                s.SampleSize, new(), System.Text.Json.JsonSerializer.Deserialize<List<string>>(s.Headlines ?? "[]") ?? new())).ToList();
+
+            _detail = new StockDetailDto(stock.Id, stock.Ticker, stock.Name, stock.Sector, stock.Industry, stock.Exchange,
+                stock.MarketCap, prices.OrderByDescending(p => p.Date).FirstOrDefault()?.Close,
+                priceDtos, patternDtos, fundDto, sentDtos);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+        }
+        finally { _loading = false; }
+    }
+
+    private class CandleData
+    {
+        public DateTime Date { get; set; }
+        public decimal Open { get; set; }
+        public decimal High { get; set; }
+        public decimal Low { get; set; }
+        public decimal Close { get; set; }
+    }
+}

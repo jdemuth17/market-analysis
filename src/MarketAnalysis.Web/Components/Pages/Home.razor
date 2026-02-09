@@ -1,0 +1,226 @@
+﻿@page "/"
+
+@inject NavigationManager Nav
+@inject IServiceProvider SP
+@inject IScanReportRepository ReportRepo
+@inject IStockRepository StockRepo
+@inject ISnackbar Snackbar
+
+<PageTitle>Dashboard - Market Analysis</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">Dashboard</MudText>
+
+@if (_loading)
+{
+    <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="mb-4" />
+}
+else if (_dashboard is not null)
+{
+    <MudGrid>
+        <MudItem xs="12" md="3">
+            <MudPaper Class="pa-4 d-flex align-center" Elevation="2">
+                <MudIcon Icon="@Icons.Material.Filled.MonitorHeart" Color="Color.Primary" Size="Size.Large" Class="mr-3" />
+                <div>
+                    <MudText Typo="Typo.caption">Stocks Tracked</MudText>
+                    <MudText Typo="Typo.h5">@_dashboard.TotalStocksTracked</MudText>
+                </div>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="3">
+            <MudPaper Class="pa-4 d-flex align-center" Elevation="2">
+                <MudIcon Icon="@Icons.Material.Filled.Schedule" Color="Color.Secondary" Size="Size.Large" Class="mr-3" />
+                <div>
+                    <MudText Typo="Typo.caption">Last Scan</MudText>
+                    <MudText Typo="Typo.h6">@(_dashboard.LastScanUtc?.ToLocalTime().ToString("g") ?? "Never")</MudText>
+                </div>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="3">
+            <MudPaper Class="pa-4 d-flex align-center" Elevation="2">
+                <MudIcon Icon="@Icons.Material.Filled.Assessment" Color="Color.Tertiary" Size="Size.Large" Class="mr-3" />
+                <div>
+                    <MudText Typo="Typo.caption">Report Categories</MudText>
+                    <MudText Typo="Typo.h5">@_dashboard.ReportSummaries.Count</MudText>
+                </div>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="3">
+            <MudPaper Class="pa-4">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.PlayArrow"
+                           OnClick="TriggerScan" Disabled="_scanning" FullWidth="true">
+                    @if (_scanning) { <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" /> }
+                    Run Scan Now
+                </MudButton>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+    <MudGrid Class="mt-4">
+        @foreach (var summary in _dashboard.ReportSummaries)
+        {
+            <MudItem xs="12" md="6">
+                <MudCard Elevation="2">
+                    <MudCardHeader>
+                        <CardHeaderContent>
+                            <MudText Typo="Typo.h6">
+                                <MudIcon Icon="@GetCategoryIcon(summary.Category)" Class="mr-2" />
+                                @GetCategoryName(summary.Category)
+                            </MudText>
+                        </CardHeaderContent>
+                        <CardHeaderActions>
+                            <MudChip T="string" Color="Color.Info" Size="Size.Small">@summary.TotalMatches matches</MudChip>
+                        </CardHeaderActions>
+                    </MudCardHeader>
+                    <MudCardContent>
+                        @if (summary.TopPicks.Any())
+                        {
+                            <MudSimpleTable Dense="true" Hover="true" Striped="true">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Ticker</th>
+                                        <th>Score</th>
+                                        <th>Pattern</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var pick in summary.TopPicks)
+                                    {
+                                        <tr style="cursor:pointer" @onclick="() => GoToStock(pick.Ticker)">
+                                            <td>@pick.Rank</td>
+                                            <td><strong>@pick.Ticker</strong></td>
+                                            <td>
+                                                <MudChip T="string" Size="Size.Small"
+                                                         Color="@(pick.CompositeScore >= 70 ? Color.Success : pick.CompositeScore >= 50 ? Color.Warning : Color.Default)">
+                                                    @pick.CompositeScore.ToString("F1")
+                                                </MudChip>
+                                            </td>
+                                            <td>@(pick.PatternDetected ?? "-")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </MudSimpleTable>
+                        }
+                        else
+                        {
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">No matches yet. Run a scan to generate reports.</MudText>
+                        }
+                    </MudCardContent>
+                    <MudCardActions>
+                        <MudButton Size="Size.Small" Color="Color.Primary"
+                                   Href="@($"/reports/{GetCategoryRoute(summary.Category)}")">
+                            View Full Report
+                        </MudButton>
+                    </MudCardActions>
+                </MudCard>
+            </MudItem>
+        }
+    </MudGrid>
+}
+else
+{
+    <MudAlert Severity="Severity.Info">
+        No data available yet. Configure your watchlists and run a scan to get started.
+    </MudAlert>
+}
+
+@code {
+    private DashboardDto? _dashboard;
+    private bool _loading = true;
+    private bool _scanning;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDashboard();
+    }
+
+    private async Task LoadDashboard()
+    {
+        _loading = true;
+        try
+        {
+            var allStocks = await StockRepo.GetAllAsync();
+            var recentReports = await ReportRepo.GetRecentAsync(20);
+
+            var summaries = new List<ScanReportSummaryDto>();
+            var categories = recentReports.Select(r => r.Category).Distinct();
+
+            foreach (var cat in categories)
+            {
+                var latest = recentReports.Where(r => r.Category == cat).OrderByDescending(r => r.ReportDate).FirstOrDefault();
+                if (latest is null) continue;
+
+                var full = await ReportRepo.GetWithEntriesAsync(latest.Id);
+                var topPicks = full?.Entries
+                    .OrderBy(e => e.Rank).Take(5)
+                    .Select(e => new ScanReportEntryDto(
+                        e.Id, e.Stock.Ticker, e.Stock.Name, e.CurrentPrice,
+                        e.CompositeScore, e.TechnicalScore, e.FundamentalScore, e.SentimentScore,
+                        e.Rank, e.PatternDetected, e.Direction, null))
+                    .ToList() ?? new();
+
+                summaries.Add(new ScanReportSummaryDto(cat, latest.TotalMatches, topPicks, latest.GeneratedAtUtc));
+            }
+
+            _dashboard = new DashboardDto(summaries, recentReports.FirstOrDefault()?.GeneratedAtUtc, null, allStocks.Count(s => s.IsActive));
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error loading dashboard: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task TriggerScan()
+    {
+        _scanning = true;
+        try
+        {
+            using var scope = SP.CreateScope();
+            var scanService = scope.ServiceProvider.GetRequiredService<IDailyScanService>();
+            _ = Task.Run(async () => { try { await scanService.RunFullScanAsync(); } catch { } });
+            Snackbar.Add("Scan triggered! Check Jobs page for progress.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to trigger scan: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _scanning = false;
+        }
+    }
+
+    private void GoToStock(string ticker) => Nav.NavigateTo($"/stock/{ticker}");
+
+    private string GetCategoryIcon(ReportCategory cat) => cat switch
+    {
+        ReportCategory.DayTrade => Icons.Material.Filled.Speed,
+        ReportCategory.SwingTrade => Icons.Material.Filled.SwapHoriz,
+        ReportCategory.ShortTermHold => Icons.Material.Filled.TrendingUp,
+        ReportCategory.LongTermHold => Icons.Material.Filled.Savings,
+        _ => Icons.Material.Filled.Assessment,
+    };
+
+    private string GetCategoryName(ReportCategory cat) => cat switch
+    {
+        ReportCategory.DayTrade => "Day Trade",
+        ReportCategory.SwingTrade => "Swing Trade",
+        ReportCategory.ShortTermHold => "Short-Term Hold",
+        ReportCategory.LongTermHold => "Long-Term Hold",
+        _ => cat.ToString(),
+    };
+
+    private string GetCategoryRoute(ReportCategory cat) => cat switch
+    {
+        ReportCategory.DayTrade => "daytrade",
+        ReportCategory.SwingTrade => "swingtrade",
+        ReportCategory.ShortTermHold => "shortterm",
+        ReportCategory.LongTermHold => "longterm",
+        _ => cat.ToString().ToLower(),
+    };
+}

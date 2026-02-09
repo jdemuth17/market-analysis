@@ -1,0 +1,177 @@
+@page "/jobs"
+
+@inject IPythonServiceClient PythonClient
+@inject IDailyScanService ScanService
+@inject IIndexDefinitionRepository IndexRepo
+@inject IServiceProvider SP
+@inject ISnackbar Snackbar
+
+<PageTitle>Jobs & Status - Market Analysis</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">Jobs & Status</MudText>
+
+<MudGrid>
+    <MudItem xs="12" md="6">
+        <MudCard Elevation="2">
+            <MudCardHeader>
+                <CardHeaderContent>
+                    <MudText Typo="Typo.h6">Python Service</MudText>
+                </CardHeaderContent>
+            </MudCardHeader>
+            <MudCardContent>
+                @if (_checkingHealth)
+                {
+                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                    <MudText>Checking...</MudText>
+                }
+                else
+                {
+                    <MudAlert Severity="@(_pythonHealthy ? Severity.Success : Severity.Error)">
+                        @(_pythonHealthy ? "Python service is healthy" : "Python service is unavailable")
+                    </MudAlert>
+                }
+            </MudCardContent>
+            <MudCardActions>
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="CheckHealth">
+                    Check Health
+                </MudButton>
+            </MudCardActions>
+        </MudCard>
+    </MudItem>
+
+    <MudItem xs="12" md="6">
+        <MudCard Elevation="2">
+            <MudCardHeader>
+                <CardHeaderContent>
+                    <MudText Typo="Typo.h6">Manual Scan</MudText>
+                </CardHeaderContent>
+            </MudCardHeader>
+            <MudCardContent>
+                <MudText Typo="Typo.body2" Class="mb-2">
+                    Trigger a full market scan manually. The scan will run in the background
+                    and may take several minutes depending on the number of tickers.
+                </MudText>
+                <MudAlert Severity="Severity.Info" Dense="true">
+                    Automatic scans run weekdays at 6:00 PM ET via Hangfire.
+                </MudAlert>
+            </MudCardContent>
+            <MudCardActions>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.PlayArrow"
+                           OnClick="TriggerScan" Disabled="_scanning">
+                    @if (_scanning) { <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" /> }
+                    Run Full Scan
+                </MudButton>
+            </MudCardActions>
+        </MudCard>
+    </MudItem>
+
+    <MudItem xs="12">
+        <MudCard Elevation="2">
+            <MudCardHeader>
+                <CardHeaderContent>
+                    <MudText Typo="Typo.h6">Hangfire Dashboard</MudText>
+                </CardHeaderContent>
+            </MudCardHeader>
+            <MudCardContent>
+                <MudText Typo="Typo.body2" Class="mb-2">
+                    View detailed job status, history, retries, and scheduled jobs in the Hangfire dashboard.
+                </MudText>
+            </MudCardContent>
+            <MudCardActions>
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary"
+                           Href="/hangfire" Target="_blank"
+                           StartIcon="@Icons.Material.Filled.OpenInNew">
+                    Open Hangfire Dashboard
+                </MudButton>
+            </MudCardActions>
+        </MudCard>
+    </MudItem>
+
+    <MudItem xs="12">
+        <MudCard Elevation="2">
+            <MudCardHeader>
+                <CardHeaderContent>
+                    <MudText Typo="Typo.h6">Index Scans</MudText>
+                </CardHeaderContent>
+            </MudCardHeader>
+            <MudCardContent>
+                @if (_indexes.Any())
+                {
+                    <MudSimpleTable Dense="true" Hover="true">
+                        <thead><tr><th>Index</th><th>Enabled</th><th>Tickers</th><th>Last Refreshed</th></tr></thead>
+                        <tbody>
+                            @foreach (var idx in _indexes)
+                            {
+                                <tr>
+                                    <td>@idx.Name</td>
+                                    <td>
+                                        <MudSwitch T="bool" Value="idx.IsEnabled" ValueChanged="(v) => ToggleIndex(idx, v)" Color="Color.Primary" />
+                                    </td>
+                                    <td>@idx.Tickers.Length</td>
+                                    <td>@idx.LastRefreshedUtc.ToLocalTime().ToString("g")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                }
+                else
+                {
+                    <MudText>No index definitions found.</MudText>
+                }
+            </MudCardContent>
+        </MudCard>
+    </MudItem>
+</MudGrid>
+
+@code {
+    private bool _pythonHealthy;
+    private bool _checkingHealth;
+    private bool _scanning;
+    private List<MarketAnalysis.Core.Entities.IndexDefinition> _indexes = new();
+
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        _indexes = await IndexRepo.GetAllAsync();
+        await CheckHealth();
+    }
+
+    private async Task CheckHealth()
+    {
+        _checkingHealth = true;
+        _pythonHealthy = await PythonClient.HealthCheckAsync();
+        _checkingHealth = false;
+    }
+
+    private async Task TriggerScan()
+    {
+        _scanning = true;
+        StateHasChanged();
+        try
+        {
+            Snackbar.Add("Scan started — this may take several minutes...", Severity.Info);
+            using var scope = SP.CreateScope();
+            var svc = scope.ServiceProvider.GetRequiredService<IDailyScanService>();
+            await svc.RunFullScanAsync();
+            Snackbar.Add("Full scan completed successfully!", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Scan failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _scanning = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ToggleIndex(MarketAnalysis.Core.Entities.IndexDefinition idx, bool enabled)
+    {
+        idx.IsEnabled = enabled;
+        await IndexRepo.UpdateAsync(idx);
+        Snackbar.Add($"{idx.Name} {(enabled ? "enabled" : "disabled")}", Severity.Info);
+    }
+}

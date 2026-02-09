@@ -1,0 +1,483 @@
+@page "/scanner"
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+@inject IConfiguration Config
+@inject ITechnicalSignalRepository TechRepo
+@inject IStockRepository StockRepo
+@inject IScanReportRepository ReportRepo
+@inject IFundamentalRepository FundRepo
+@inject ISnackbar Snackbar
+
+<PageTitle>Scanner - Market Analysis</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">
+    <MudIcon Icon="@Icons.Material.Filled.TravelExplore" Class="mr-2" />
+    Market Scanner
+</MudText>
+
+<MudTabs Elevation="2" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pa-4">
+    <!-- Top Movers Tab -->
+    <MudTabPanel Text="Top Movers" Icon="@Icons.Material.Filled.TrendingUp">
+        <MudGrid Class="mb-4">
+            <MudItem xs="12" md="4">
+                <MudSelect T="string" @bind-Value="_moversIndex" Label="Index" Variant="Variant.Outlined" Dense="true">
+                    <MudSelectItem Value="@("sp500")">S&P 500</MudSelectItem>
+                    <MudSelectItem Value="@("nasdaq100")">NASDAQ 100</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudNumericField @bind-Value="_moversTopN" Label="Results per category" Min="5" Max="100" Variant="Variant.Outlined" />
+            </MudItem>
+            <MudItem xs="12" md="4" Class="d-flex align-end">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.Search"
+                           OnClick="LoadTopMovers" Disabled="_moversLoading" FullWidth="true">
+                    @if (_moversLoading) { <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" /> }
+                    Scan for Movers
+                </MudButton>
+            </MudItem>
+        </MudGrid>
+
+        @if (_moversLoading)
+        {
+            <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="mb-2" />
+            <MudAlert Severity="Severity.Info">
+                Scanning @(_moversIndex == "sp500" ? "S&P 500 (~500" : "NASDAQ 100 (~100") tickers)...
+                This may take a few minutes due to rate limiting.
+            </MudAlert>
+        }
+        else if (_topMovers is not null)
+        {
+            <MudText Typo="Typo.caption" Class="mb-2">Scanned @_topMovers.TotalScanned tickers | @_topMovers.Errors errors</MudText>
+
+            <MudGrid>
+                <!-- Gainers -->
+                <MudItem xs="12" md="4">
+                    <MudCard Elevation="2">
+                        <MudCardHeader>
+                            <CardHeaderContent>
+                                <MudText Typo="Typo.h6" Color="Color.Success">
+                                    <MudIcon Icon="@Icons.Material.Filled.ArrowUpward" /> Top Gainers
+                                </MudText>
+                            </CardHeaderContent>
+                        </MudCardHeader>
+                        <MudCardContent Style="max-height:500px; overflow-y:auto">
+                            <MudSimpleTable Dense="true" Hover="true">
+                                <thead><tr><th>Ticker</th><th>Price</th><th>Change</th></tr></thead>
+                                <tbody>
+                                    @foreach (var m in _topMovers.TopGainers)
+                                    {
+                                        <tr style="cursor:pointer" @onclick="() => GoToStock(m.Ticker)">
+                                            <td><strong>@m.Ticker</strong><br /><MudText Typo="Typo.caption">@TruncName(m.Name)</MudText></td>
+                                            <td>@FormatPrice(m.CurrentPrice)</td>
+                                            <td><MudChip T="string" Size="Size.Small" Color="Color.Success">+@m.ChangePercent?.ToString("F2")%</MudChip></td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </MudSimpleTable>
+                        </MudCardContent>
+                    </MudCard>
+                </MudItem>
+
+                <!-- Losers -->
+                <MudItem xs="12" md="4">
+                    <MudCard Elevation="2">
+                        <MudCardHeader>
+                            <CardHeaderContent>
+                                <MudText Typo="Typo.h6" Color="Color.Error">
+                                    <MudIcon Icon="@Icons.Material.Filled.ArrowDownward" /> Top Losers
+                                </MudText>
+                            </CardHeaderContent>
+                        </MudCardHeader>
+                        <MudCardContent Style="max-height:500px; overflow-y:auto">
+                            <MudSimpleTable Dense="true" Hover="true">
+                                <thead><tr><th>Ticker</th><th>Price</th><th>Change</th></tr></thead>
+                                <tbody>
+                                    @foreach (var m in _topMovers.TopLosers)
+                                    {
+                                        <tr style="cursor:pointer" @onclick="() => GoToStock(m.Ticker)">
+                                            <td><strong>@m.Ticker</strong><br /><MudText Typo="Typo.caption">@TruncName(m.Name)</MudText></td>
+                                            <td>@FormatPrice(m.CurrentPrice)</td>
+                                            <td><MudChip T="string" Size="Size.Small" Color="Color.Error">@m.ChangePercent?.ToString("F2")%</MudChip></td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </MudSimpleTable>
+                        </MudCardContent>
+                    </MudCard>
+                </MudItem>
+
+                <!-- Most Active -->
+                <MudItem xs="12" md="4">
+                    <MudCard Elevation="2">
+                        <MudCardHeader>
+                            <CardHeaderContent>
+                                <MudText Typo="Typo.h6" Color="Color.Warning">
+                                    <MudIcon Icon="@Icons.Material.Filled.LocalFireDepartment" /> Most Active
+                                </MudText>
+                            </CardHeaderContent>
+                        </MudCardHeader>
+                        <MudCardContent Style="max-height:500px; overflow-y:auto">
+                            <MudSimpleTable Dense="true" Hover="true">
+                                <thead><tr><th>Ticker</th><th>Price</th><th>Vol Ratio</th></tr></thead>
+                                <tbody>
+                                    @foreach (var m in _topMovers.MostActive)
+                                    {
+                                        <tr style="cursor:pointer" @onclick="() => GoToStock(m.Ticker)">
+                                            <td><strong>@m.Ticker</strong><br /><MudText Typo="Typo.caption">@TruncName(m.Name)</MudText></td>
+                                            <td>@FormatPrice(m.CurrentPrice)</td>
+                                            <td><MudChip T="string" Size="Size.Small" Color="Color.Warning">@m.VolumeRatio?.ToString("F1")x</MudChip></td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </MudSimpleTable>
+                        </MudCardContent>
+                    </MudCard>
+                </MudItem>
+            </MudGrid>
+        }
+        else
+        {
+            <MudAlert Severity="Severity.Info">Click "Scan for Movers" to fetch live data from Yahoo Finance.</MudAlert>
+        }
+    </MudTabPanel>
+
+    <!-- Pattern Scanner Tab -->
+    <MudTabPanel Text="Pattern Scanner" Icon="@Icons.Material.Filled.Pattern">
+        <MudGrid Class="mb-4">
+            <MudItem xs="12" md="4">
+                <MudNumericField @bind-Value="_patternDays" Label="Lookback days" Min="1" Max="30" Variant="Variant.Outlined" />
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudSelect T="string" @bind-Value="_patternFilter" Label="Pattern Type" Variant="Variant.Outlined" Dense="true" Clearable="true">
+                    <MudSelectItem Value="@("")">All Patterns</MudSelectItem>
+                    <MudSelectItem Value="@("HeadAndShoulders")">Head & Shoulders</MudSelectItem>
+                    <MudSelectItem Value="@("InverseHeadAndShoulders")">Inverse H&S</MudSelectItem>
+                    <MudSelectItem Value="@("DoubleTop")">Double Top</MudSelectItem>
+                    <MudSelectItem Value="@("DoubleBottom")">Double Bottom</MudSelectItem>
+                    <MudSelectItem Value="@("TripleTop")">Triple Top</MudSelectItem>
+                    <MudSelectItem Value="@("TripleBottom")">Triple Bottom</MudSelectItem>
+                    <MudSelectItem Value="@("AscendingTriangle")">Ascending Triangle</MudSelectItem>
+                    <MudSelectItem Value="@("DescendingTriangle")">Descending Triangle</MudSelectItem>
+                    <MudSelectItem Value="@("SymmetricalTriangle")">Symmetrical Triangle</MudSelectItem>
+                    <MudSelectItem Value="@("BullFlag")">Bull Flag</MudSelectItem>
+                    <MudSelectItem Value="@("BearFlag")">Bear Flag</MudSelectItem>
+                    <MudSelectItem Value="@("CupAndHandle")">Cup & Handle</MudSelectItem>
+                    <MudSelectItem Value="@("Wedge")">Wedge</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" md="4" Class="d-flex align-end">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.Search"
+                           OnClick="LoadPatterns" Disabled="_patternsLoading" FullWidth="true">
+                    @if (_patternsLoading) { <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" /> }
+                    Search Patterns
+                </MudButton>
+            </MudItem>
+        </MudGrid>
+
+        @if (_patternsLoading)
+        {
+            <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+        }
+        else if (_patterns.Any())
+        {
+            <MudText Typo="Typo.caption" Class="mb-2">Found @_patterns.Count pattern(s) in the last @_patternDays days</MudText>
+            <MudDataGrid Items="_patterns" Dense="true" Hover="true" Striped="true" RowClick="OnPatternRowClick" T="PatternScanResultDto">
+                <Columns>
+                    <PropertyColumn Property="x => x.Ticker" Title="Ticker" />
+                    <PropertyColumn Property="x => x.StockName" Title="Name" />
+                    <TemplateColumn Title="Price">
+                        <CellTemplate>@FormatPriceDecimal(context.Item.CurrentPrice)</CellTemplate>
+                    </TemplateColumn>
+                    <TemplateColumn Title="Pattern">
+                        <CellTemplate>
+                            <MudChip T="string" Size="Size.Small"
+                                     Color="@(context.Item.Direction == "Bullish" ? Color.Success : Color.Error)">
+                                @FormatPatternName(context.Item.PatternType)
+                            </MudChip>
+                        </CellTemplate>
+                    </TemplateColumn>
+                    <PropertyColumn Property="x => x.Direction" Title="Direction" />
+                    <TemplateColumn Title="Confidence">
+                        <CellTemplate>@context.Item.Confidence.ToString("P0")</CellTemplate>
+                    </TemplateColumn>
+                    <PropertyColumn Property="x => x.DetectedDate" Title="Detected" />
+                    <PropertyColumn Property="x => x.Status" Title="Status" />
+                </Columns>
+            </MudDataGrid>
+        }
+        else if (_patternsSearched)
+        {
+            <MudAlert Severity="Severity.Info">No patterns found in the last @_patternDays days. Run a scan first to detect patterns.</MudAlert>
+        }
+    </MudTabPanel>
+
+    <!-- Best Prospects Tab -->
+    <MudTabPanel Text="Best Prospects" Icon="@Icons.Material.Filled.Stars">
+        <MudGrid Class="mb-4">
+            <MudItem xs="12" md="4">
+                <MudNumericField @bind-Value="_prospectsLimit" Label="Max results" Min="10" Max="200" Variant="Variant.Outlined" />
+            </MudItem>
+            <MudItem xs="12" md="4" Class="d-flex align-end">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.AutoAwesome"
+                           OnClick="LoadBestProspects" Disabled="_prospectsLoading" FullWidth="true">
+                    @if (_prospectsLoading) { <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" /> }
+                    Find Best Prospects
+                </MudButton>
+            </MudItem>
+        </MudGrid>
+
+        @if (_prospectsLoading)
+        {
+            <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+        }
+        else if (_prospects.Any())
+        {
+            <MudText Typo="Typo.caption" Class="mb-2">Top @_prospects.Count prospects by composite score</MudText>
+            <MudDataGrid Items="_prospects" Dense="true" Hover="true" Striped="true" RowClick="OnProspectRowClick" T="BestProspectDto">
+                <Columns>
+                    <TemplateColumn Title="#" SortBy="x => _prospects.IndexOf(x) + 1">
+                        <CellTemplate>@(_prospects.IndexOf(context.Item) + 1)</CellTemplate>
+                    </TemplateColumn>
+                    <PropertyColumn Property="x => x.Ticker" Title="Ticker" />
+                    <PropertyColumn Property="x => x.StockName" Title="Name" />
+                    <TemplateColumn Title="Price">
+                        <CellTemplate>@FormatPriceDecimal(context.Item.CurrentPrice)</CellTemplate>
+                    </TemplateColumn>
+                    <PropertyColumn Property="x => x.Sector" Title="Sector" />
+                    <TemplateColumn Title="Composite" SortBy="x => x.CompositeScore">
+                        <CellTemplate>
+                            <MudChip T="string" Size="Size.Small"
+                                     Color="@(context.Item.CompositeScore >= 70 ? Color.Success : context.Item.CompositeScore >= 50 ? Color.Warning : Color.Default)">
+                                @context.Item.CompositeScore.ToString("F1")
+                            </MudChip>
+                        </CellTemplate>
+                    </TemplateColumn>
+                    <TemplateColumn Title="Technical">
+                        <CellTemplate>@context.Item.TechnicalScore.ToString("F1")</CellTemplate>
+                    </TemplateColumn>
+                    <TemplateColumn Title="Fundamental">
+                        <CellTemplate>@context.Item.FundamentalScore.ToString("F1")</CellTemplate>
+                    </TemplateColumn>
+                    <TemplateColumn Title="Sentiment">
+                        <CellTemplate>@context.Item.SentimentScore.ToString("F1")</CellTemplate>
+                    </TemplateColumn>
+                    <TemplateColumn Title="Pattern">
+                        <CellTemplate>
+                            @if (!string.IsNullOrEmpty(context.Item.TopPattern))
+                            {
+                                <MudChip T="string" Size="Size.Small"
+                                         Color="@(context.Item.PatternDirection == "Bullish" ? Color.Success : Color.Error)">
+                                    @FormatPatternName(context.Item.TopPattern)
+                                </MudChip>
+                            }
+                            else
+                            {
+                                <MudText Typo="Typo.caption">-</MudText>
+                            }
+                        </CellTemplate>
+                    </TemplateColumn>
+                    <PropertyColumn Property="x => x.Recommendation" Title="Rec." />
+                </Columns>
+            </MudDataGrid>
+        }
+        else if (_prospectsSearched)
+        {
+            <MudAlert Severity="Severity.Info">No prospect data available. Run a full scan first to generate reports.</MudAlert>
+        }
+    </MudTabPanel>
+</MudTabs>
+
+@code {
+    // --- Top Movers state ---
+    private string _moversIndex = "sp500";
+    private int _moversTopN = 25;
+    private bool _moversLoading;
+    private TopMoversResponseDto? _topMovers;
+
+    // --- Pattern Scanner state ---
+    private int _patternDays = 7;
+    private string _patternFilter = "";
+    private bool _patternsLoading;
+    private bool _patternsSearched;
+    private List<PatternScanResultDto> _patterns = new();
+
+    // --- Best Prospects state ---
+    private int _prospectsLimit = 50;
+    private bool _prospectsLoading;
+    private bool _prospectsSearched;
+    private List<BestProspectDto> _prospects = new();
+
+    private void GoToStock(string ticker) => Nav.NavigateTo($"/stock/{ticker}");
+
+    // --- Top Movers ---
+    private async Task LoadTopMovers()
+    {
+        _moversLoading = true;
+        StateHasChanged();
+        try
+        {
+            var http = HttpFactory.CreateClient();
+            http.BaseAddress = new Uri(Config["PythonService:BaseUrl"] ?? "http://localhost:8000");
+            http.Timeout = TimeSpan.FromMinutes(10);
+
+            var payload = new { index = _moversIndex, top_n = _moversTopN };
+            var opts = new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.SnakeCaseLower };
+            var resp = await http.PostAsJsonAsync("/api/scanner/top-movers", payload, opts);
+            resp.EnsureSuccessStatusCode();
+
+            var json = await resp.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(opts);
+
+            var gainers = DeserializeList<TickerMoverDto>(json, "top_gainers");
+            var losers = DeserializeList<TickerMoverDto>(json, "top_losers");
+            var active = DeserializeList<TickerMoverDto>(json, "most_active");
+            var scanned = json.TryGetProperty("total_scanned", out var ts) ? ts.GetInt32() : 0;
+            var errors = json.TryGetProperty("errors", out var er) ? er.GetInt32() : 0;
+
+            _topMovers = new TopMoversResponseDto(gainers, losers, active, scanned, errors);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error fetching movers: {ex.Message}", Severity.Error);
+        }
+        finally { _moversLoading = false; }
+    }
+
+    // --- Pattern Scanner ---
+    private async Task LoadPatterns()
+    {
+        _patternsLoading = true;
+        _patternsSearched = true;
+        try
+        {
+            var signals = await TechRepo.GetAllRecentAsync(_patternDays);
+
+            _patterns = signals.Select(s => new PatternScanResultDto(
+                s.Stock?.Ticker ?? $"Stock#{s.StockId}",
+                s.Stock?.Name ?? "",
+                s.Stock?.MarketCap,
+                s.PatternType.ToString(),
+                s.Direction.ToString(),
+                s.Confidence,
+                s.DetectedDate,
+                s.Status ?? "Active"
+            )).ToList();
+
+            if (!string.IsNullOrEmpty(_patternFilter))
+            {
+                _patterns = _patterns.Where(p => p.PatternType == _patternFilter).ToList();
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error loading patterns: {ex.Message}", Severity.Error);
+        }
+        finally { _patternsLoading = false; }
+    }
+
+    // --- Best Prospects ---
+    private async Task LoadBestProspects()
+    {
+        _prospectsLoading = true;
+        _prospectsSearched = true;
+        try
+        {
+            var reports = await ReportRepo.GetRecentAsync(8);
+            var entryMap = new Dictionary<string, (double composite, double tech, double fund, double sent, string? pattern, string? direction)>();
+
+            foreach (var report in reports)
+            {
+                var full = await ReportRepo.GetWithEntriesAsync(report.Id);
+                if (full?.Entries is null) continue;
+
+                foreach (var entry in full.Entries)
+                {
+                    var ticker = entry.Stock?.Ticker ?? "";
+                    if (string.IsNullOrEmpty(ticker)) continue;
+
+                    if (!entryMap.ContainsKey(ticker) || entry.CompositeScore > entryMap[ticker].composite)
+                    {
+                        entryMap[ticker] = (
+                            entry.CompositeScore,
+                            entry.TechnicalScore,
+                            entry.FundamentalScore,
+                            entry.SentimentScore,
+                            entry.PatternDetected,
+                            entry.Direction
+                        );
+                    }
+                }
+            }
+
+            _prospects = new();
+            foreach (var kv in entryMap.OrderByDescending(x => x.Value.composite).Take(_prospectsLimit))
+            {
+                var stock = await StockRepo.GetByTickerAsync(kv.Key);
+                var fund = stock is not null ? await FundRepo.GetLatestByStockAsync(stock.Id) : null;
+
+                _prospects.Add(new BestProspectDto(
+                    kv.Key,
+                    stock?.Name ?? "",
+                    stock?.MarketCap,
+                    stock?.Sector,
+                    Math.Round(kv.Value.composite, 2),
+                    Math.Round(kv.Value.tech, 2),
+                    Math.Round(kv.Value.fund, 2),
+                    Math.Round(kv.Value.sent, 2),
+                    kv.Value.pattern,
+                    kv.Value.direction,
+                    fund?.RecommendationKey
+                ));
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error loading prospects: {ex.Message}", Severity.Error);
+        }
+        finally { _prospectsLoading = false; }
+    }
+
+    private void OnPatternRowClick(DataGridRowClickEventArgs<PatternScanResultDto> args)
+        => Nav.NavigateTo($"/stock/{args.Item.Ticker}");
+
+    private void OnProspectRowClick(DataGridRowClickEventArgs<BestProspectDto> args)
+        => Nav.NavigateTo($"/stock/{args.Item.Ticker}");
+
+    private static List<T> DeserializeList<T>(System.Text.Json.JsonElement root, string propertyName)
+    {
+        if (root.TryGetProperty(propertyName, out var prop))
+        {
+            var opts = new System.Text.Json.JsonSerializerOptions
+            {
+                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.SnakeCaseLower,
+                PropertyNameCaseInsensitive = true,
+            };
+            return System.Text.Json.JsonSerializer.Deserialize<List<T>>(prop.GetRawText(), opts) ?? new();
+        }
+        return new();
+    }
+
+    private static string FormatPrice(double? price) => price.HasValue ? price.Value.ToString("C2") : "-";
+    private static string FormatPriceDecimal(decimal? price) => price.HasValue ? price.Value.ToString("C2") : "-";
+    private static string TruncName(string? name) => name is null ? "" : name.Length > 20 ? name[..20] + "..." : name;
+
+    private static string FormatPatternName(string? raw) => raw switch
+    {
+        "HeadAndShoulders" => "Head & Shoulders",
+        "InverseHeadAndShoulders" => "Inv. H&S",
+        "DoubleTop" => "Double Top",
+        "DoubleBottom" => "Double Bottom",
+        "TripleTop" => "Triple Top",
+        "TripleBottom" => "Triple Bottom",
+        "AscendingTriangle" => "Asc. Triangle",
+        "DescendingTriangle" => "Desc. Triangle",
+        "SymmetricalTriangle" => "Sym. Triangle",
+        "BullFlag" => "Bull Flag",
+        "BearFlag" => "Bear Flag",
+        "CupAndHandle" => "Cup & Handle",
+        "Wedge" => "Wedge",
+        _ => raw ?? "-",
+    };
+}

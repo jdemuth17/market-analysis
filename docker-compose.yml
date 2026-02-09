@@ -1,0 +1,38 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: market_analysis_db
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: market_analysis
+      POSTGRES_USER: market
+      POSTGRES_PASSWORD: dev_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U market -d market_analysis"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  python-api:
+    build:
+      context: ./src/MarketAnalysis.PythonService
+      dockerfile: Dockerfile
+    container_name: market_analysis_python
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      MA_DEBUG: "true"
+    env_file:
+      - ./src/MarketAnalysis.PythonService/.env
+    volumes:
+      - model_cache:/root/.cache/huggingface
+
+volumes:
+  pgdata:
+  model_cache:

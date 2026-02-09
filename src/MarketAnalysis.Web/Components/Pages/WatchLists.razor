@@ -1,0 +1,177 @@
+@page "/watchlists"
+
+@inject IWatchListRepository WatchListRepo
+@inject IStockRepository StockRepo
+@inject ISnackbar Snackbar
+
+<PageTitle>Watchlists - Market Analysis</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">Watchlists</MudText>
+
+<MudGrid>
+    <MudItem xs="12" md="8">
+        @if (_loading)
+        {
+            <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+        }
+        else
+        {
+            @foreach (var wl in _watchLists)
+            {
+                <MudCard Class="mb-3" Elevation="2">
+                    <MudCardHeader>
+                        <CardHeaderContent>
+                            <MudText Typo="Typo.h6">@wl.Name</MudText>
+                            <MudText Typo="Typo.caption">@wl.Description</MudText>
+                        </CardHeaderContent>
+                        <CardHeaderActions>
+                            <MudChip T="string" Color="Color.Info" Size="Size.Small">@wl.ItemCount stocks</MudChip>
+                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small"
+                                           OnClick="() => DeleteWatchList(wl.Id)" />
+                        </CardHeaderActions>
+                    </MudCardHeader>
+                    <MudCardContent>
+                        @if (_selectedWatchList?.Id == wl.Id && _selectedDetail is not null)
+                        {
+                            <MudSimpleTable Dense="true" Hover="true">
+                                <thead><tr><th>Ticker</th><th>Name</th><th>Added</th><th></th></tr></thead>
+                                <tbody>
+                                    @foreach (var item in _selectedDetail.Items)
+                                    {
+                                        <tr>
+                                            <td><strong>@item.Ticker</strong></td>
+                                            <td>@item.StockName</td>
+                                            <td>@item.AddedAtUtc.ToLocalTime().ToString("g")</td>
+                                            <td>
+                                                <MudIconButton Icon="@Icons.Material.Filled.RemoveCircle" Color="Color.Error" Size="Size.Small"
+                                                               OnClick="() => RemoveStock(wl.Id, item.Ticker)" />
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </MudSimpleTable>
+
+                            <MudGrid Class="mt-2">
+                                <MudItem xs="9">
+                                    <MudTextField @bind-Value="_newTicker" Label="Add Ticker" Variant="Variant.Outlined"
+                                                  Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Add" />
+                                </MudItem>
+                                <MudItem xs="3" Class="d-flex align-end">
+                                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                                               OnClick="() => AddStock(wl.Id)" FullWidth="true">Add</MudButton>
+                                </MudItem>
+                            </MudGrid>
+                        }
+                    </MudCardContent>
+                    <MudCardActions>
+                        <MudButton Size="Size.Small" Color="Color.Primary"
+                                   OnClick="() => ToggleWatchList(wl)">
+                            @(_selectedWatchList?.Id == wl.Id ? "Collapse" : "Expand")
+                        </MudButton>
+                    </MudCardActions>
+                </MudCard>
+            }
+        }
+    </MudItem>
+
+    <MudItem xs="12" md="4">
+        <MudCard Elevation="2">
+            <MudCardHeader>
+                <CardHeaderContent>
+                    <MudText Typo="Typo.h6">Create Watchlist</MudText>
+                </CardHeaderContent>
+            </MudCardHeader>
+            <MudCardContent>
+                <MudTextField @bind-Value="_newName" Label="Name" Variant="Variant.Outlined" Class="mb-2" />
+                <MudTextField @bind-Value="_newDesc" Label="Description" Variant="Variant.Outlined" Lines="2" />
+            </MudCardContent>
+            <MudCardActions>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                           OnClick="CreateWatchList" Disabled="string.IsNullOrWhiteSpace(_newName)">
+                    Create
+                </MudButton>
+            </MudCardActions>
+        </MudCard>
+    </MudItem>
+</MudGrid>
+
+@code {
+    private List<WatchListDto> _watchLists = new();
+    private WatchListDto? _selectedWatchList;
+    private WatchListDetailDto? _selectedDetail;
+    private bool _loading = true;
+    private string _newName = "";
+    private string _newDesc = "";
+    private string _newTicker = "";
+
+
+
+    protected override async Task OnInitializedAsync() => await LoadWatchLists();
+
+    private async Task LoadWatchLists()
+    {
+        _loading = true;
+        var lists = await WatchListRepo.GetAllWithItemCountAsync();
+        _watchLists = lists.Select(w => new WatchListDto(w.Id, w.Name, w.Description, w.Items.Count, w.CreatedAtUtc)).ToList();
+        _loading = false;
+    }
+
+    private async Task ToggleWatchList(WatchListDto wl)
+    {
+        if (_selectedWatchList?.Id == wl.Id) { _selectedWatchList = null; _selectedDetail = null; return; }
+        _selectedWatchList = wl;
+        var full = await WatchListRepo.GetWithItemsAsync(wl.Id);
+        if (full is not null)
+        {
+            _selectedDetail = new WatchListDetailDto(full.Id, full.Name, full.Description,
+                full.Items.Select(i => new WatchListItemDto(i.Id, i.Stock.Ticker, i.Stock.Name, null, i.AddedAtUtc)).ToList());
+        }
+    }
+
+    private async Task CreateWatchList()
+    {
+        var wl = new MarketAnalysis.Core.Entities.WatchList { Name = _newName, Description = _newDesc };
+        await WatchListRepo.AddAsync(wl);
+        _newName = ""; _newDesc = "";
+        Snackbar.Add("Watchlist created!", Severity.Success);
+        await LoadWatchLists();
+    }
+
+    private async Task AddStock(int watchListId)
+    {
+        if (string.IsNullOrWhiteSpace(_newTicker)) return;
+        var wl = await WatchListRepo.GetWithItemsAsync(watchListId);
+        if (wl is null) return;
+        var stock = await StockRepo.GetOrCreateAsync(_newTicker.Trim());
+        if (wl.Items.Any(i => i.StockId == stock.Id)) { Snackbar.Add("Already in list", Severity.Warning); return; }
+        wl.Items.Add(new MarketAnalysis.Core.Entities.WatchListItem { StockId = stock.Id });
+        await WatchListRepo.UpdateAsync(wl);
+        _newTicker = "";
+        Snackbar.Add("Stock added!", Severity.Success);
+        await ToggleWatchList(new WatchListDto(wl.Id, wl.Name, wl.Description, wl.Items.Count, wl.CreatedAtUtc));
+        await LoadWatchLists();
+    }
+
+    private async Task RemoveStock(int watchListId, string ticker)
+    {
+        var wl = await WatchListRepo.GetWithItemsAsync(watchListId);
+        if (wl is null) return;
+        var stock = await StockRepo.GetByTickerAsync(ticker);
+        if (stock is null) return;
+        var item = wl.Items.FirstOrDefault(i => i.StockId == stock.Id);
+        if (item is not null) wl.Items.Remove(item);
+        await WatchListRepo.UpdateAsync(wl);
+        Snackbar.Add("Stock removed", Severity.Info);
+        await ToggleWatchList(new WatchListDto(wl.Id, wl.Name, wl.Description, wl.Items.Count, wl.CreatedAtUtc));
+        await LoadWatchLists();
+    }
+
+    private async Task DeleteWatchList(int id)
+    {
+        var wl = await WatchListRepo.GetByIdAsync(id);
+        if (wl is not null) await WatchListRepo.DeleteAsync(wl);
+        Snackbar.Add("Watchlist deleted", Severity.Info);
+        _selectedWatchList = null; _selectedDetail = null;
+        await LoadWatchLists();
+    }
+}
