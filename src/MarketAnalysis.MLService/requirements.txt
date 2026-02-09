@@ -1,0 +1,26 @@
+# Web framework
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.6.0
+pydantic-settings>=2.1.0
+python-dotenv>=1.0.0
+
+# Database
+sqlalchemy[asyncio]>=2.0.25
+asyncpg>=0.29.0
+
+# ML - XGBoost
+xgboost>=2.0.0
+shap>=0.44.0
+
+# ML - LSTM (PyTorch)
+torch>=2.2.0
+torchvision>=0.17.0
+
+# Data
+pandas>=2.2.0
+numpy>=1.26.0
+scikit-learn>=1.4.0
+
+# Yahoo Finance (for backfill)
+yfinance>=0.2.40

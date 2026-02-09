@@ -33,6 +33,31 @@ services:
     volumes:
       - model_cache:/root/.cache/huggingface
 
+  ml-service:
+    build:
+      context: ./src/MarketAnalysis.MLService
+      dockerfile: Dockerfile
+    container_name: market_analysis_ml
+    ports:
+      - "8002:8002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ML_DATABASE_URL: "postgresql+asyncpg://market:dev_password@postgres:5432/market_analysis"
+      ML_PYTHON_SERVICE_URL: "http://python-api:8000"
+      ML_DEBUG: "true"
+    volumes:
+      - ml_models:/app/trained_models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
 volumes:
   pgdata:
   model_cache:
+  ml_models:
