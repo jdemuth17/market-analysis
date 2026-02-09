@@ -43,58 +43,58 @@ async def _run_training(job_id: str, models: list[str], categories: list[str]):
     metrics = {}
 
     try:
-        from app.db.connection import async_session
-        from app.features.feature_builder import FeatureBuilder
-        from app.db.queries import get_active_stocks
         from app.models.xgboost_model import XGBoostScorer
         from app.models.model_registry import model_registry
+        from app.features.feature_builder import ALL_FEATURES
         from app.config import settings
         from pathlib import Path
         import pandas as pd
 
-        async with async_session() as session:
-            builder = FeatureBuilder(session)
+        parquet_path = Path("training_data") / "training_dataset.parquet"
+        if not parquet_path.exists():
+            raise RuntimeError(
+                f"Training dataset not found at {parquet_path}. Run backfill first."
+            )
 
-            if "xgboost" in models:
-                logger.info("Training XGBoost models...")
-                # Build feature matrix from all stocks with sufficient data
-                dataset = await builder.build_training_dataset(session)
-                if dataset is None or dataset.empty:
-                    raise RuntimeError("No training data available. Run backfill first.")
+        dataset = pd.read_parquet(parquet_path)
+        logger.info(f"Loaded training dataset: {len(dataset)} rows, {len(dataset.columns)} columns")
 
-                for category in categories:
-                    if category not in CATEGORIES:
-                        continue
+        if "xgboost" in models:
+            logger.info("Training XGBoost models...")
 
-                    label_col = f"label_{category.lower()}"
-                    if label_col not in dataset.columns:
-                        logger.warning(f"No labels for {category}, skipping")
-                        continue
+            for category in categories:
+                if category not in CATEGORIES:
+                    continue
 
-                    # Drop rows without labels
-                    cat_data = dataset.dropna(subset=[label_col])
-                    feature_cols = [c for c in cat_data.columns if not c.startswith("label_")]
-                    X = cat_data[feature_cols]
-                    y = cat_data[label_col].astype(int)
+                label_col = f"label_{category.lower()}"
+                if label_col not in dataset.columns:
+                    logger.warning(f"No labels for {category}, skipping")
+                    continue
 
-                    scorer = XGBoostScorer(category)
-                    cat_metrics = scorer.train(X, y)
-                    metrics[f"xgboost_{category.lower()}"] = cat_metrics
+                # Drop rows without labels, use only feature columns
+                cat_data = dataset.dropna(subset=[label_col])
+                feature_cols = [c for c in ALL_FEATURES if c in cat_data.columns]
+                X = cat_data[feature_cols]
+                y = cat_data[label_col].astype(int)
 
-                    # Save model
-                    model_path = Path(settings.model_dir) / f"xgboost_{category.lower()}.json"
-                    scorer.save(model_path)
-                    model_registry.xgboost_models[category] = scorer.model
+                scorer = XGBoostScorer(category)
+                cat_metrics = scorer.train(X, y)
+                metrics[f"xgboost_{category.lower()}"] = cat_metrics
 
-            # LSTM and ensemble training follow same pattern
-            # (implemented in Phase 4 and Phase 5)
-            if "lstm" in models:
-                logger.info("LSTM training not yet implemented (Phase 4)")
-                metrics["lstm"] = {"status": "not_implemented"}
+                # Save model
+                model_path = Path(settings.model_dir) / f"xgboost_{category.lower()}.json"
+                scorer.save(model_path)
+                model_registry.xgboost_models[category] = scorer.model
 
-            if "ensemble" in models:
-                logger.info("Ensemble calibration not yet implemented (Phase 5)")
-                metrics["ensemble"] = {"status": "not_implemented"}
+        # LSTM and ensemble training follow same pattern
+        # (implemented in Phase 4 and Phase 5)
+        if "lstm" in models:
+            logger.info("LSTM training not yet implemented (Phase 4)")
+            metrics["lstm"] = {"status": "not_implemented"}
+
+        if "ensemble" in models:
+            logger.info("Ensemble calibration not yet implemented (Phase 5)")
+            metrics["ensemble"] = {"status": "not_implemented"}
 
         _training_jobs[job_id]["status"] = "completed"
         _training_jobs[job_id]["metrics"] = metrics
