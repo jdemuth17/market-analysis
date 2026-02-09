@@ -126,11 +126,74 @@ async def _run_training(job_id: str, models: list[str], categories: list[str]):
                     f"CV_AUC={cat_metrics['cv_auc_mean']:.3f}"
                 )
 
-        # LSTM and ensemble training follow same pattern
-        # (implemented in Phase 4 and Phase 5)
+        # LSTM training: build per-stock sequences, train 4 models
         if "lstm" in models:
-            logger.info("LSTM training not yet implemented (Phase 4)")
-            metrics["lstm"] = {"status": "not_implemented"}
+            logger.info("Training LSTM models...")
+            from app.models.lstm_trainer import LSTMTrainer
+            from app.features.sequence_builder import build_training_sequences
+
+            # Map category to its return column for regression head
+            return_col_map = {
+                "DayTrade": "return_1d",
+                "SwingTrade": "return_5d",
+                "ShortTermHold": "return_10d",
+                "LongTermHold": "return_30d",
+            }
+
+            for category in categories:
+                if category not in CATEGORIES:
+                    continue
+
+                label_col = f"label_{category.lower()}"
+                return_col = return_col_map.get(category)
+
+                if label_col not in dataset.columns:
+                    logger.warning(f"No labels for LSTM {category}, skipping")
+                    continue
+
+                # Build per-stock sequences (no cross-stock contamination)
+                X_seq, y_cls, y_reg = build_training_sequences(
+                    dataset=dataset,
+                    feature_cols=feature_cols,
+                    label_col=label_col,
+                    return_col=return_col,
+                )
+
+                if len(X_seq) < 100:
+                    logger.warning(f"Too few LSTM sequences for {category} ({len(X_seq)}), skipping")
+                    continue
+
+                # Time-ordered split: 80% train, 20% val
+                split_idx = int(len(X_seq) * 0.8)
+                X_train_seq = X_seq[:split_idx]
+                y_cls_train = y_cls[:split_idx]
+                y_reg_train = y_reg[:split_idx] if y_reg is not None else None
+                X_val_seq = X_seq[split_idx:]
+                y_cls_val = y_cls[split_idx:]
+                y_reg_val = y_reg[split_idx:] if y_reg is not None else None
+
+                trainer = LSTMTrainer(category)
+                cat_metrics = trainer.train(
+                    X_train_seq, y_cls_train, y_reg_train,
+                    X_val_seq, y_cls_val, y_reg_val,
+                )
+                metrics[f"lstm_{category.lower()}"] = cat_metrics
+
+                # Save model and metadata
+                lstm_path = model_dir / f"lstm_{category.lower()}.pt"
+                trainer.save(lstm_path)
+
+                lstm_meta_path = model_dir / f"lstm_{category.lower()}_metadata.json"
+                trainer.save_metadata(lstm_meta_path)
+
+                # Register for immediate use
+                model_registry.lstm_models[category] = trainer.model
+
+                logger.info(
+                    f"LSTM {category}: AUC={cat_metrics['auc']:.3f}, "
+                    f"epochs={cat_metrics['total_epochs']}, "
+                    f"time={cat_metrics['training_time_sec']}s"
+                )
 
         if "ensemble" in models:
             logger.info("Ensemble calibration not yet implemented (Phase 5)")
@@ -141,9 +204,13 @@ async def _run_training(job_id: str, models: list[str], categories: list[str]):
             "trained_at": datetime.utcnow().isoformat(),
             "dataset_rows": len(dataset),
             "feature_count": len(feature_cols),
-            "categories_trained": [
+            "xgboost_categories": [
                 c for c in categories
                 if f"xgboost_{c.lower()}" in metrics
+            ],
+            "lstm_categories": [
+                c for c in categories
+                if f"lstm_{c.lower()}" in metrics
             ],
             "metrics": metrics,
         }

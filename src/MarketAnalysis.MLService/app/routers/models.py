@@ -59,9 +59,12 @@ async def list_models():
 
         # LSTM
         if category in model_registry.lstm_models:
+            lstm_meta = model_registry.get_lstm_metadata(category)
             models.append(ModelInfo(
                 category=category,
                 model_type="lstm",
+                metrics=lstm_meta.get("metrics") if lstm_meta else None,
+                config=lstm_meta.get("config") if lstm_meta else None,
             ))
 
     status = model_registry.get_status()

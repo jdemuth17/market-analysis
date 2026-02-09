@@ -24,6 +24,7 @@ class ModelRegistry:
         self._normalizer = None
         self._training_summary: Optional[dict] = None
         self._model_metadata: dict[str, dict] = {}
+        self._lstm_metadata: dict[str, dict] = {}
 
     async def load_all(self):
         """Load all available trained models from disk."""
@@ -51,6 +52,12 @@ class ModelRegistry:
             if lstm_path.exists():
                 self._load_lstm(category, lstm_path)
                 loaded += 1
+
+            # LSTM metadata
+            lstm_meta_path = self.model_dir / f"lstm_{category.lower()}_metadata.json"
+            if lstm_meta_path.exists():
+                with open(lstm_meta_path) as f:
+                    self._lstm_metadata[category] = json.load(f)
 
         # Ensemble weights
         weights_path = self.model_dir / "ensemble_weights.json"
@@ -112,8 +119,12 @@ class ModelRegistry:
         return None
 
     def get_model_metadata(self, category: str) -> Optional[dict]:
-        """Return training metadata for a specific category."""
+        """Return XGBoost training metadata for a specific category."""
         return self._model_metadata.get(category)
+
+    def get_lstm_metadata(self, category: str) -> Optional[dict]:
+        """Return LSTM training metadata for a specific category."""
+        return self._lstm_metadata.get(category)
 
     def get_status(self) -> dict:
         return {
