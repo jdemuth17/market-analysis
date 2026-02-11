@@ -51,3 +51,24 @@ public interface IMLRetrainingService
 {
     Task RunRetrainingAsync(List<string> models, CancellationToken cancellationToken = default);
 }
+
+/// <summary>Thread-safe singleton that tracks scan progress for UI polling.</summary>
+public interface IScanProgressTracker
+{
+    bool IsRunning { get; }
+    string CurrentStep { get; }
+    int CurrentStepNumber { get; }
+    int TotalSteps { get; }
+    int TickersProcessed { get; }
+    int TotalTickers { get; }
+    double OverallPercentage { get; }
+    DateTime? StartedAtUtc { get; }
+    DateTime? CompletedAtUtc { get; }
+    string? ErrorMessage { get; }
+
+    void Start(int totalTickers, int totalSteps = 6);
+    void SetStep(int stepNumber, string stepName);
+    void IncrementTicker();
+    void Complete();
+    void Fail(string errorMessage);
+}

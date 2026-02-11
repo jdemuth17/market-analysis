@@ -2,6 +2,7 @@ using MarketAnalysis.Core.DTOs;
 using MarketAnalysis.Core.Entities;
 using MarketAnalysis.Core.Enums;
 using MarketAnalysis.Core.Interfaces;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace MarketAnalysis.Infrastructure.Services;
@@ -14,6 +15,8 @@ public class MarketDataIngestionService : IMarketDataIngestionService
     private readonly IFundamentalRepository _fundamentalRepo;
     private readonly ITechnicalSignalRepository _technicalRepo;
     private readonly ISentimentRepository _sentimentRepo;
+    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IScanProgressTracker _progress;
     private readonly ILogger<MarketDataIngestionService> _logger;
 
     public MarketDataIngestionService(
@@ -23,6 +26,8 @@ public class MarketDataIngestionService : IMarketDataIngestionService
         IFundamentalRepository fundamentalRepo,
         ITechnicalSignalRepository technicalRepo,
         ISentimentRepository sentimentRepo,
+        IServiceScopeFactory scopeFactory,
+        IScanProgressTracker progress,
         ILogger<MarketDataIngestionService> logger)
     {
         _python = python;
@@ -31,6 +36,8 @@ public class MarketDataIngestionService : IMarketDataIngestionService
         _fundamentalRepo = fundamentalRepo;
         _technicalRepo = technicalRepo;
         _sentimentRepo = sentimentRepo;
+        _scopeFactory = scopeFactory;
+        _progress = progress;
         _logger = logger;
     }
 
@@ -59,6 +66,7 @@ public class MarketDataIngestionService : IMarketDataIngestionService
                 }).ToList();
 
                 await _priceRepo.UpsertRangeAsync(stock.Id, prices);
+                _progress.IncrementTicker();
             }
 
             _logger.LogInformation("Batch prices ingested: {Ok}/{Total}",
@@ -120,24 +128,32 @@ public class MarketDataIngestionService : IMarketDataIngestionService
                 };
 
                 await _fundamentalRepo.AddAsync(snapshot);
+                _progress.IncrementTicker();
             }
         }
     }
 
     public async Task IngestTechnicalsAsync(List<string> tickers, UserScanConfig config)
     {
-        _logger.LogInformation("Ingesting technicals for {Count} tickers", tickers.Count);
+        _logger.LogInformation("Ingesting technicals for {Count} tickers (10 parallel)", tickers.Count);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
-        foreach (var ticker in tickers)
+        var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = 10 };
+
+        await Parallel.ForEachAsync(tickers, parallelOptions, async (ticker, ct) =>
         {
             try
             {
-                var stock = await _stockRepo.GetByTickerAsync(ticker);
-                if (stock is null) continue;
+                using var scope = _scopeFactory.CreateScope();
+                var stockRepo = scope.ServiceProvider.GetRequiredService<IStockRepository>();
+                var priceRepo = scope.ServiceProvider.GetRequiredService<IPriceHistoryRepository>();
+                var technicalRepo = scope.ServiceProvider.GetRequiredService<ITechnicalSignalRepository>();
 
-                var prices = await _priceRepo.GetByStockAsync(stock.Id, 365);
-                if (prices.Count < 30) continue;
+                var stock = await stockRepo.GetByTickerAsync(ticker);
+                if (stock is null) return;
+
+                var prices = await priceRepo.GetByStockAsync(stock.Id, 365);
+                if (prices.Count < 30) return;
 
                 var bars = prices
                     .OrderBy(p => p.Date)
@@ -149,7 +165,6 @@ public class MarketDataIngestionService : IMarketDataIngestionService
                     config.EnabledIndicators.ToList(),
                     config.EnabledPatterns.ToList());
 
-                // Store detected patterns as signals
                 foreach (var pattern in analysis.DetectedPatterns)
                 {
                     if (!Enum.TryParse<PatternType>(pattern.PatternType, true, out var pt)) continue;
@@ -169,32 +184,42 @@ public class MarketDataIngestionService : IMarketDataIngestionService
                         Metadata = pattern.Metadata is not null
                             ? System.Text.Json.JsonSerializer.Serialize(pattern.Metadata) : null,
                     };
-                    await _technicalRepo.AddAsync(signal);
+                    await technicalRepo.AddAsync(signal);
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Technical analysis failed for {Ticker}", ticker);
             }
-        }
+            finally
+            {
+                _progress.IncrementTicker();
+            }
+        });
     }
 
     public async Task IngestSentimentAsync(List<string> tickers, UserScanConfig config)
     {
-        _logger.LogInformation("Ingesting sentiment for {Count} tickers", tickers.Count);
+        _logger.LogInformation("Ingesting sentiment for {Count} tickers (3 parallel batches)", tickers.Count);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var batches = tickers.Chunk(10).ToList();
 
-        // Process in batches
-        foreach (var batch in tickers.Chunk(10))
+        var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = 3 };
+
+        await Parallel.ForEachAsync(batches, parallelOptions, async (batch, ct) =>
         {
             try
             {
                 var response = await _python.RunSentimentPipelineAsync(
                     batch.ToList(), config.EnabledSentimentSources.ToList());
 
+                using var scope = _scopeFactory.CreateScope();
+                var stockRepo = scope.ServiceProvider.GetRequiredService<IStockRepository>();
+                var sentimentRepo = scope.ServiceProvider.GetRequiredService<ISentimentRepository>();
+
                 foreach (var sentiment in response.Data.Where(d => d.Error is null))
                 {
-                    var stock = await _stockRepo.GetByTickerAsync(sentiment.Ticker);
+                    var stock = await stockRepo.GetByTickerAsync(sentiment.Ticker);
                     if (stock is null) continue;
 
                     if (!Enum.TryParse<SentimentSource>(sentiment.Source, true, out var source)) continue;
@@ -210,13 +235,17 @@ public class MarketDataIngestionService : IMarketDataIngestionService
                         SampleSize = sentiment.SampleSize,
                         Headlines = System.Text.Json.JsonSerializer.Serialize(sentiment.Headlines),
                     };
-                    await _sentimentRepo.AddAsync(score);
+                    await sentimentRepo.AddAsync(score);
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Sentiment analysis failed for batch");
             }
-        }
+            finally
+            {
+                foreach (var _ in batch) _progress.IncrementTicker();
+            }
+        });
     }
 }

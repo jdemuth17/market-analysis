@@ -3,6 +3,7 @@ using System;
 using MarketAnalysis.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace MarketAnalysis.Infrastructure.Migrations
 {
     [DbContext(typeof(MarketAnalysisDbContext))]
-    partial class MarketAnalysisDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260210145441_AddUseMlScoringToUserScanConfig")]
+    partial class AddUseMlScoringToUserScanConfig
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -157,7 +160,7 @@ namespace MarketAnalysis.Infrastructure.Migrations
                         {
                             Id = 1,
                             IsEnabled = false,
-                            LastRefreshedUtc = new DateTime(2026, 2, 11, 13, 50, 56, 130, DateTimeKind.Utc).AddTicks(1154),
+                            LastRefreshedUtc = new DateTime(2026, 2, 10, 14, 54, 39, 988, DateTimeKind.Utc).AddTicks(430),
                             Name = "S&P 500",
                             Tickers = new string[0]
                         },
@@ -165,7 +168,7 @@ namespace MarketAnalysis.Infrastructure.Migrations
                         {
                             Id = 2,
                             IsEnabled = false,
-                            LastRefreshedUtc = new DateTime(2026, 2, 11, 13, 50, 56, 130, DateTimeKind.Utc).AddTicks(1157),
+                            LastRefreshedUtc = new DateTime(2026, 2, 10, 14, 54, 39, 988, DateTimeKind.Utc).AddTicks(432),
                             Name = "NASDAQ 100",
                             Tickers = new string[0]
                         });
@@ -475,9 +478,6 @@ namespace MarketAnalysis.Infrastructure.Migrations
                     b.Property<double?>("MaxPERatio")
                         .HasColumnType("double precision");
 
-                    b.Property<long?>("MinDailyVolume")
-                        .HasColumnType("bigint");
-
                     b.Property<decimal?>("MinMarketCap")
                         .HasColumnType("decimal(18,2)");
 
@@ -521,7 +521,7 @@ namespace MarketAnalysis.Infrastructure.Migrations
                         new
                         {
                             Id = 1,
-                            CreatedAtUtc = new DateTime(2026, 2, 11, 13, 50, 56, 130, DateTimeKind.Utc).AddTicks(1005),
+                            CreatedAtUtc = new DateTime(2026, 2, 10, 14, 54, 39, 987, DateTimeKind.Utc).AddTicks(9908),
                             EnabledCategories = new[] { "DayTrade", "SwingTrade", "ShortTermHold", "LongTermHold" },
                             EnabledIndicators = new[] { "RSI14", "MACD", "SMA50", "SMA200", "BollingerBands", "ATR", "OBV" },
                             EnabledPatterns = new[] { "DoubleTop", "DoubleBottom", "HeadAndShoulders", "InverseHeadAndShoulders", "BullFlag", "BearFlag", "AscendingTriangle", "DescendingTriangle", "SymmetricalTriangle", "RisingWedge", "FallingWedge", "Pennant", "CupAndHandle" },
@@ -537,7 +537,7 @@ namespace MarketAnalysis.Infrastructure.Migrations
                             PriceRangeMin = 5m,
                             SentimentWeight = 0.25,
                             TechnicalWeight = 0.40000000000000002,
-                            UpdatedAtUtc = new DateTime(2026, 2, 11, 13, 50, 56, 130, DateTimeKind.Utc).AddTicks(1007),
+                            UpdatedAtUtc = new DateTime(2026, 2, 10, 14, 54, 39, 987, DateTimeKind.Utc).AddTicks(9911),
                             UseMlScoring = false
                         });
                 });

@@ -3,8 +3,11 @@
 @inject IPythonServiceClient PythonClient
 @inject IDailyScanService ScanService
 @inject IIndexDefinitionRepository IndexRepo
+@inject IScanProgressTracker Progress
 @inject IServiceProvider SP
 @inject ISnackbar Snackbar
+
+@implements IDisposable
 
 <PageTitle>Jobs & Status - Market Analysis</PageTitle>
 
@@ -51,15 +54,45 @@
                     Trigger a full market scan manually. The scan will run in the background
                     and may take several minutes depending on the number of tickers.
                 </MudText>
-                <MudAlert Severity="Severity.Info" Dense="true">
+
+                @if (Progress.IsRunning)
+                {
+                    <MudPaper Class="pa-3 mt-2" Elevation="0" Style="background: var(--mud-palette-background-grey);">
+                        <MudText Typo="Typo.subtitle2" Class="mb-1">
+                            Step @Progress.CurrentStepNumber/@Progress.TotalSteps: @Progress.CurrentStep
+                        </MudText>
+                        <MudProgressLinear Value="@Progress.OverallPercentage" Color="Color.Primary"
+                                           Rounded="true" Size="Size.Large" Class="mb-1">
+                            <MudText Typo="Typo.caption">@Progress.OverallPercentage.ToString("F0")%</MudText>
+                        </MudProgressLinear>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                            @Progress.TickersProcessed / @Progress.TotalTickers tickers
+                            @if (Progress.StartedAtUtc.HasValue)
+                            {
+                                var elapsed = DateTime.UtcNow - Progress.StartedAtUtc.Value;
+                                @($" — {elapsed.Minutes}m {elapsed.Seconds}s elapsed")
+                            }
+                        </MudText>
+                    </MudPaper>
+                }
+                else if (Progress.CompletedAtUtc.HasValue)
+                {
+                    var severity = Progress.ErrorMessage is null ? Severity.Success : Severity.Error;
+                    var message = Progress.ErrorMessage is null
+                        ? $"Last scan completed at {Progress.CompletedAtUtc.Value.ToLocalTime():g}"
+                        : $"Last scan failed: {Progress.ErrorMessage}";
+                    <MudAlert Severity="severity" Dense="true" Class="mt-2">@message</MudAlert>
+                }
+
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">
                     Automatic scans run weekdays at 6:00 PM ET via Hangfire.
                 </MudAlert>
             </MudCardContent>
             <MudCardActions>
                 <MudButton Variant="Variant.Filled" Color="Color.Primary"
                            StartIcon="@Icons.Material.Filled.PlayArrow"
-                           OnClick="TriggerScan" Disabled="_scanning">
-                    @if (_scanning) { <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" /> }
+                           OnClick="TriggerScan" Disabled="Progress.IsRunning">
+                    @if (Progress.IsRunning) { <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" /> }
                     Run Full Scan
                 </MudButton>
             </MudCardActions>
@@ -127,15 +160,17 @@
 @code {
     private bool _pythonHealthy;
     private bool _checkingHealth;
-    private bool _scanning;
     private List<MarketAnalysis.Core.Entities.IndexDefinition> _indexes = new();
-
-
+    private System.Threading.Timer? _pollTimer;
 
     protected override async Task OnInitializedAsync()
     {
         _indexes = await IndexRepo.GetAllAsync();
         await CheckHealth();
+
+        // Start polling if a scan is already running
+        if (Progress.IsRunning)
+            StartPolling();
     }
 
     private async Task CheckHealth()
@@ -145,27 +180,53 @@
         _checkingHealth = false;
     }
 
-    private async Task TriggerScan()
+    private void TriggerScan()
     {
-        _scanning = true;
+        if (Progress.IsRunning) return;
+
+        Snackbar.Add("Scan started — this may take several minutes...", Severity.Info);
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var scope = SP.CreateScope();
+                var svc = scope.ServiceProvider.GetRequiredService<IDailyScanService>();
+                await svc.RunFullScanAsync();
+            }
+            catch (Exception ex)
+            {
+                await InvokeAsync(() =>
+                {
+                    Snackbar.Add($"Scan failed: {ex.Message}", Severity.Error);
+                    StateHasChanged();
+                });
+            }
+        });
+
+        StartPolling();
         StateHasChanged();
-        try
+    }
+
+    private void StartPolling()
+    {
+        _pollTimer?.Dispose();
+        _pollTimer = new System.Threading.Timer(async _ =>
         {
-            Snackbar.Add("Scan started — this may take several minutes...", Severity.Info);
-            using var scope = SP.CreateScope();
-            var svc = scope.ServiceProvider.GetRequiredService<IDailyScanService>();
-            await svc.RunFullScanAsync();
-            Snackbar.Add("Full scan completed successfully!", Severity.Success);
-        }
-        catch (Exception ex)
-        {
-            Snackbar.Add($"Scan failed: {ex.Message}", Severity.Error);
-        }
-        finally
-        {
-            _scanning = false;
-            StateHasChanged();
-        }
+            await InvokeAsync(() =>
+            {
+                StateHasChanged();
+
+                if (!Progress.IsRunning && _pollTimer is not null)
+                {
+                    _pollTimer.Dispose();
+                    _pollTimer = null;
+
+                    if (Progress.ErrorMessage is null && Progress.CompletedAtUtc.HasValue)
+                        Snackbar.Add("Full scan completed successfully!", Severity.Success);
+                }
+            });
+        }, null, TimeSpan.Zero, TimeSpan.FromSeconds(2));
     }
 
     private async Task ToggleIndex(MarketAnalysis.Core.Entities.IndexDefinition idx, bool enabled)
@@ -173,5 +234,10 @@
         idx.IsEnabled = enabled;
         await IndexRepo.UpdateAsync(idx);
         Snackbar.Add($"{idx.Name} {(enabled ? "enabled" : "disabled")}", Severity.Info);
+    }
+
+    public void Dispose()
+    {
+        _pollTimer?.Dispose();
     }
 }

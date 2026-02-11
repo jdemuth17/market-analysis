@@ -55,6 +55,7 @@ builder.Services.AddHttpClient<IMLServiceClient, MLServiceClient>(client =>
     .CircuitBreakerAsync(5, TimeSpan.FromSeconds(30)));
 
 // ----- Business Services -----
+builder.Services.AddSingleton<IScanProgressTracker, ScanProgressTracker>();
 builder.Services.AddScoped<IMarketDataIngestionService, MarketDataIngestionService>();
 builder.Services.AddScoped<IReportGenerationService, ReportGenerationService>();
 builder.Services.AddScoped<IDailyScanService, DailyScanService>();

@@ -25,6 +25,9 @@ else if (_config is not null)
                 <MudItem xs="12" md="6">
                     <MudNumericField @bind-Value="_config.MinMarketCap" Label="Min Market Cap ($)" Variant="Variant.Outlined" />
                 </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudNumericField @bind-Value="_config.MinDailyVolume" Label="Min Daily Volume" Format="N0" Variant="Variant.Outlined" />
+                </MudItem>
             </MudGrid>
         </MudTabPanel>
 
@@ -141,6 +144,7 @@ else if (_config is not null)
                 FundamentalWeight = entity.FundamentalWeight,
                 SentimentWeight = entity.SentimentWeight,
                 MinSentimentSampleSize = entity.MinSentimentSampleSize,
+                MinDailyVolume = entity.MinDailyVolume,
             };
             _enabledPatterns = new HashSet<PatternType>(entity.EnabledPatterns);
             _enabledCategories = new HashSet<ReportCategory>(entity.EnabledCategories);
@@ -177,6 +181,7 @@ else if (_config is not null)
             entity.FundamentalWeight = _config.FundamentalWeight;
             entity.SentimentWeight = _config.SentimentWeight;
             entity.MinSentimentSampleSize = _config.MinSentimentSampleSize;
+            entity.MinDailyVolume = _config.MinDailyVolume;
             entity.EnabledPatterns = _enabledPatterns.ToArray();
             entity.EnabledCategories = _enabledCategories.ToArray();
             entity.EnabledSentimentSources = _enabledSources.ToArray();
@@ -205,5 +210,6 @@ else if (_config is not null)
         public double FundamentalWeight { get; set; }
         public double SentimentWeight { get; set; }
         public int MinSentimentSampleSize { get; set; }
+        public long? MinDailyVolume { get; set; }
     }
 }

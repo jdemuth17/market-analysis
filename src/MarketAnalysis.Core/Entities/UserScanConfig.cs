@@ -19,6 +19,9 @@ public class UserScanConfig
     public decimal? PriceRangeMin { get; set; }
     public decimal? PriceRangeMax { get; set; }
 
+    // Volume filter (applied as pre-filter before expensive ingestion)
+    public long? MinDailyVolume { get; set; }
+
     // Fundamental thresholds
     public decimal? MinMarketCap { get; set; }
     public double? MaxPERatio { get; set; }
