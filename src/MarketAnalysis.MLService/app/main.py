@@ -1,5 +1,11 @@
 import logging
+import os
+import platform
+import asyncio
 from contextlib import asynccontextmanager
+
+# Fix SSL issues with yfinance on Windows when CURL_CA_BUNDLE is set incorrectly
+os.environ.pop("CURL_CA_BUNDLE", None)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,6 +13,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.db.connection import engine
 from app.routers import health, predict, train, backfill, models, monitor
+
+# Fix asyncpg + Python 3.13 on Windows (ProactorEventLoop incompatible)
+if platform.system() == "Windows":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 logging.basicConfig(
     level=logging.DEBUG if settings.debug else logging.INFO,

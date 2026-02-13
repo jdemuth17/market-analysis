@@ -177,12 +177,14 @@ public class DailyScanService : IDailyScanService
                     passed.Add(tickerData.Ticker);
                 }
 
-                _progress.IncrementTicker();
+                // Increment per ticker in the batch (not once per batch)
+                foreach (var _ in batch) _progress.IncrementTicker();
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Pre-filter fetch failed for batch, including all tickers");
                 passed.AddRange(batch);
+                foreach (var _ in batch) _progress.IncrementTicker();
             }
         }
 

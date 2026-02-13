@@ -161,16 +161,15 @@
     private bool _pythonHealthy;
     private bool _checkingHealth;
     private List<MarketAnalysis.Core.Entities.IndexDefinition> _indexes = new();
-    private System.Threading.Timer? _pollTimer;
+    private CancellationTokenSource? _pollCts;
 
     protected override async Task OnInitializedAsync()
     {
         _indexes = await IndexRepo.GetAllAsync();
         await CheckHealth();
 
-        // Start polling if a scan is already running
-        if (Progress.IsRunning)
-            StartPolling();
+        // Always start polling so we catch scans triggered by API or Hangfire
+        StartPolling();
     }
 
     private async Task CheckHealth()
@@ -204,29 +203,35 @@
             }
         });
 
-        StartPolling();
         StateHasChanged();
     }
 
     private void StartPolling()
     {
-        _pollTimer?.Dispose();
-        _pollTimer = new System.Threading.Timer(async _ =>
+        _pollCts?.Cancel();
+        _pollCts = new CancellationTokenSource();
+        var token = _pollCts.Token;
+
+        _ = Task.Run(async () =>
         {
-            await InvokeAsync(() =>
+            while (!token.IsCancellationRequested)
             {
-                StateHasChanged();
-
-                if (!Progress.IsRunning && _pollTimer is not null)
+                try
                 {
-                    _pollTimer.Dispose();
-                    _pollTimer = null;
-
-                    if (Progress.ErrorMessage is null && Progress.CompletedAtUtc.HasValue)
-                        Snackbar.Add("Full scan completed successfully!", Severity.Success);
+                    await Task.Delay(1500, token);
+                    await InvokeAsync(StateHasChanged);
                 }
-            });
-        }, null, TimeSpan.Zero, TimeSpan.FromSeconds(2));
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch
+                {
+                    // Component may have been disposed
+                    break;
+                }
+            }
+        });
     }
 
     private async Task ToggleIndex(MarketAnalysis.Core.Entities.IndexDefinition idx, bool enabled)
@@ -238,6 +243,7 @@
 
     public void Dispose()
     {
-        _pollTimer?.Dispose();
+        _pollCts?.Cancel();
+        _pollCts?.Dispose();
     }
 }

@@ -26,6 +26,7 @@ public interface IPriceHistoryRepository : IRepository<PriceHistory>
     Task<List<PriceHistory>> GetByStockAsync(int stockId, int days = 365);
     Task<List<PriceHistory>> GetByStockAndDateRangeAsync(int stockId, DateOnly from, DateOnly to);
     Task<PriceHistory?> GetLatestAsync(int stockId);
+    Task<Dictionary<int, PriceHistory>> GetLatestForStocksAsync(IEnumerable<int> stockIds);
     Task UpsertRangeAsync(int stockId, IEnumerable<PriceHistory> prices);
 }
 
@@ -35,11 +36,13 @@ public interface ITechnicalSignalRepository : IRepository<TechnicalSignal>
     Task<List<TechnicalSignal>> GetByDateAsync(DateOnly date);
     Task<List<TechnicalSignal>> GetRecentByStockAsync(int stockId, int limit = 10);
     Task<List<TechnicalSignal>> GetAllRecentAsync(int days = 7);
+    Task<Dictionary<int, List<TechnicalSignal>>> GetRecentForStocksAsync(IEnumerable<int> stockIds, int days = 30);
 }
 
 public interface IFundamentalRepository : IRepository<FundamentalSnapshot>
 {
     Task<FundamentalSnapshot?> GetLatestByStockAsync(int stockId);
+    Task<Dictionary<int, FundamentalSnapshot>> GetLatestForStocksAsync(IEnumerable<int> stockIds);
     Task<List<FundamentalSnapshot>> GetByStockAsync(int stockId, int limit = 10);
 }
 
@@ -48,6 +51,7 @@ public interface ISentimentRepository : IRepository<SentimentScore>
     Task<List<SentimentScore>> GetByStockAsync(int stockId, int days = 30);
     Task<List<SentimentScore>> GetByStockAndDateAsync(int stockId, DateOnly date);
     Task<List<SentimentScore>> GetLatestByStockAsync(int stockId);
+    Task<Dictionary<int, List<SentimentScore>>> GetLatestForStocksAsync(IEnumerable<int> stockIds);
 }
 
 public interface IScanReportRepository : IRepository<ScanReport>

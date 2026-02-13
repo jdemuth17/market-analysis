@@ -35,4 +35,17 @@ public class TechnicalSignalRepository : Repository<TechnicalSignal>, ITechnical
             .OrderByDescending(t => t.DetectedDate)
             .ThenByDescending(t => t.Confidence)
             .ToListAsync();
+
+    public async Task<Dictionary<int, List<TechnicalSignal>>> GetRecentForStocksAsync(IEnumerable<int> stockIds, int days = 30)
+    {
+        var idList = stockIds.ToList();
+        var cutoff = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-days));
+        var signals = await _dbSet
+            .Where(t => idList.Contains(t.StockId) && t.DetectedDate >= cutoff)
+            .OrderByDescending(t => t.DetectedDate)
+            .ToListAsync();
+
+        return signals.GroupBy(t => t.StockId)
+            .ToDictionary(g => g.Key, g => g.ToList());
+    }
 }

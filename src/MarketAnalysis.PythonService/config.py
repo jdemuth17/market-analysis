@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     # FinBERT
     finbert_model_name: str = "ProsusAI/finbert"
     finbert_batch_size: int = 32
+    finbert_gpu_batch_size: int = 64
     finbert_max_length: int = 512
 
     # Ticker list cache

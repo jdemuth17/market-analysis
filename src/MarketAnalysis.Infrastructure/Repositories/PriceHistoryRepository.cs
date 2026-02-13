@@ -27,6 +27,18 @@ public class PriceHistoryRepository : Repository<PriceHistory>, IPriceHistoryRep
             .OrderByDescending(p => p.Date)
             .FirstOrDefaultAsync();
 
+    public async Task<Dictionary<int, PriceHistory>> GetLatestForStocksAsync(IEnumerable<int> stockIds)
+    {
+        var idList = stockIds.ToList();
+        var latestPrices = await _dbSet
+            .Where(p => idList.Contains(p.StockId))
+            .GroupBy(p => p.StockId)
+            .Select(g => g.OrderByDescending(p => p.Date).First())
+            .ToListAsync();
+
+        return latestPrices.ToDictionary(p => p.StockId);
+    }
+
     public async Task UpsertRangeAsync(int stockId, IEnumerable<PriceHistory> prices)
     {
         var existingDates = await _dbSet

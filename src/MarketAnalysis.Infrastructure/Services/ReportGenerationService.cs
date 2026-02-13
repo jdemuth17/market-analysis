@@ -44,6 +44,18 @@ public class ReportGenerationService : IReportGenerationService
         var reports = new List<ScanReport>();
         var allStocks = await _stockRepo.GetAllAsync();
         var activeStocks = allStocks.Where(s => s.IsActive).ToList();
+        var activeStockIds = activeStocks.Select(s => s.Id).ToList();
+
+        _logger.LogInformation("Bulk-loading data for {Count} active stocks", activeStocks.Count);
+
+        // Bulk load all data in 4 queries instead of N*4 queries
+        var allLatestPrices = await _priceRepo.GetLatestForStocksAsync(activeStockIds);
+        var allFundamentals = await _fundamentalRepo.GetLatestForStocksAsync(activeStockIds);
+        var allSignals = await _technicalRepo.GetRecentForStocksAsync(activeStockIds, 30);
+        var allSentiment = await _sentimentRepo.GetLatestForStocksAsync(activeStockIds);
+
+        _logger.LogInformation("Bulk load complete: {Prices} prices, {Fund} fundamentals, {Sig} signal groups, {Sent} sentiment groups",
+            allLatestPrices.Count, allFundamentals.Count, allSignals.Count, allSentiment.Count);
 
         // Pre-filter by price range
         var filteredStocks = new List<(Stock stock, PriceHistory? latestPrice, FundamentalSnapshot? fundamental,
@@ -51,16 +63,15 @@ public class ReportGenerationService : IReportGenerationService
 
         foreach (var stock in activeStocks)
         {
-            var latestPrice = await _priceRepo.GetLatestAsync(stock.Id);
-            if (latestPrice is null) continue;
+            if (!allLatestPrices.TryGetValue(stock.Id, out var latestPrice)) continue;
 
             // Price range filter
             if (config.PriceRangeMin.HasValue && latestPrice.Close < config.PriceRangeMin.Value) continue;
             if (config.PriceRangeMax.HasValue && latestPrice.Close > config.PriceRangeMax.Value) continue;
 
-            var fundamental = await _fundamentalRepo.GetLatestByStockAsync(stock.Id);
-            var signals = await _technicalRepo.GetByStockAsync(stock.Id, 30);
-            var sentiment = await _sentimentRepo.GetLatestByStockAsync(stock.Id);
+            allFundamentals.TryGetValue(stock.Id, out var fundamental);
+            allSignals.TryGetValue(stock.Id, out var signals);
+            allSentiment.TryGetValue(stock.Id, out var sentiment);
 
             // Fundamental filters
             if (config.MaxPERatio.HasValue && fundamental?.PeRatio > config.MaxPERatio.Value) continue;
@@ -68,7 +79,7 @@ public class ReportGenerationService : IReportGenerationService
             if (config.MinProfitMargin.HasValue && fundamental?.ProfitMargin < config.MinProfitMargin.Value) continue;
             if (config.MinMarketCap.HasValue && fundamental?.MarketCap < config.MinMarketCap.Value) continue;
 
-            filteredStocks.Add((stock, latestPrice, fundamental, signals, sentiment));
+            filteredStocks.Add((stock, latestPrice, fundamental, signals ?? new List<TechnicalSignal>(), sentiment ?? new List<SentimentScore>()));
         }
 
         _logger.LogInformation("Filtered {Count}/{Total} stocks meet criteria",

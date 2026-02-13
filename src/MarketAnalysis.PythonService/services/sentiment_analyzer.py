@@ -10,34 +10,61 @@ logger = logging.getLogger(__name__)
 
 
 class SentimentAnalyzer:
-    """Singleton FinBERT sentiment analysis engine."""
+    """Singleton FinBERT sentiment analysis engine with GPU acceleration."""
 
     _instance: Optional["SentimentAnalyzer"] = None
     _lock = threading.Lock()
 
     def __init__(self):
         self._pipeline = None
+        self._device_name = "cpu"
+        self._batch_size = 32
         self._load_model()
 
     def _load_model(self):
-        """Load the FinBERT model."""
+        """Load FinBERT model on GPU (device=0) when CUDA is available, CPU otherwise."""
         try:
+            import torch
             from transformers import pipeline as hf_pipeline
 
-            logger.info("Loading FinBERT model (this may take a moment on first run)...")
+            # GPU provides 10-60x FinBERT speedup; auto-detect and fall back to CPU
+            if torch.cuda.is_available():
+                device = 0  # First CUDA device
+                self._device_name = "cuda"
+                # GPU VRAM (16GB on A4000) handles 64-text batches with FinBERT (~440MB model)
+                self._batch_size = 64
+                logger.info(f"CUDA GPU detected: {torch.cuda.get_device_name(0)}")
+            else:
+                device = -1  # CPU
+                self._device_name = "cpu"
+                self._batch_size = 32
+                logger.info("No CUDA GPU detected, using CPU")
+
+            logger.info("Loading FinBERT model...")
             self._pipeline = hf_pipeline(
                 "sentiment-analysis",
                 model="ProsusAI/finbert",
                 tokenizer="ProsusAI/finbert",
                 truncation=True,
                 max_length=512,
+                device=device,
             )
-            logger.info("FinBERT model loaded successfully")
+            logger.info(f"FinBERT model loaded on {self._device_name} (batch_size={self._batch_size})")
 
         except Exception as e:
             logger.error(f"Failed to load FinBERT model: {e}")
             logger.warning("Sentiment analysis will use fallback scoring")
             self._pipeline = None
+
+    @property
+    def device(self) -> str:
+        """Returns 'cuda' or 'cpu' indicating active compute device."""
+        return self._device_name
+
+    @property
+    def batch_size(self) -> int:
+        """Batch size tuned per device: 64 for GPU, 32 for CPU."""
+        return self._batch_size
 
     @classmethod
     def get_instance(cls) -> "SentimentAnalyzer":
@@ -48,11 +75,12 @@ class SentimentAnalyzer:
                     cls._instance = cls()
         return cls._instance
 
-    def analyze_texts(self, texts: list[str], batch_size: int = 32) -> list[SentimentResult]:
+    def analyze_texts(self, texts: list[str], batch_size: int | None = None) -> list[SentimentResult]:
         """
         Analyze a batch of texts using FinBERT.
 
         Returns SentimentResult per text with positive/negative/neutral scores.
+        Uses device-tuned batch size (64 GPU, 32 CPU) unless overridden.
         """
         if not texts:
             return []
@@ -60,12 +88,13 @@ class SentimentAnalyzer:
         if self._pipeline is None:
             return self._fallback_analyze(texts)
 
+        effective_batch_size = batch_size if batch_size is not None else self._batch_size
         results: list[SentimentResult] = []
 
         try:
-            # Process in batches
-            for i in range(0, len(texts), batch_size):
-                batch = texts[i : i + batch_size]
+            # Process in batches sized for the active device
+            for i in range(0, len(texts), effective_batch_size):
+                batch = texts[i : i + effective_batch_size]
 
                 # Clean texts
                 cleaned = [t.strip()[:512] for t in batch if t.strip()]

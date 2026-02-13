@@ -252,8 +252,8 @@ async def _build_dataset_for_stock(
                 df.at[idx, "debt_to_equity"] = float(f.DebtToEquity) if f.DebtToEquity else 0
                 fcf = float(f.FreeCashFlow) if f.FreeCashFlow else 0
                 df.at[idx, "fcf_to_mcap"] = fcf / mcap if mcap > 0 else 0
-                df.at[idx, "revenue_growth"] = float(f.RevenueGrowth) if f.RevenueGrowth else 0
-                df.at[idx, "earnings_growth"] = float(f.EarningsGrowth) if f.EarningsGrowth else 0
+                df.at[idx, "revenue_per_share"] = float(f.RevenuePerShare) if f.RevenuePerShare else 0
+                df.at[idx, "earnings_per_share"] = float(f.EarningsPerShare) if f.EarningsPerShare else 0
                 df.at[idx, "beta"] = float(f.Beta) if f.Beta else 1.0
                 df.at[idx, "dividend_yield"] = float(f.DividendYield) if f.DividendYield else 0
                 df.at[idx, "value_score"] = (float(f.ValueScore) / 100.0) if f.ValueScore else 0.5

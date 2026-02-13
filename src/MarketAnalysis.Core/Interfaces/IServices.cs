@@ -14,6 +14,7 @@ public interface IPythonServiceClient
     Task<FullSentimentResponseDto> RunSentimentPipelineAsync(
         List<string> tickers, List<SentimentSource> sources, int maxItemsPerSource = 30);
     Task<FundamentalScoreDto> ScoreFundamentalsAsync(FundamentalDataDto data);
+    Task<BatchFundamentalScoreResponseDto> ScoreFundamentalsBatchAsync(List<FundamentalDataDto> items);
     Task<List<string>> GetTickerListAsync(string indexName);
     Task<bool> HealthCheckAsync();
 }

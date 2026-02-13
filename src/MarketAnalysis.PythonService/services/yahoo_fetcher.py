@@ -54,14 +54,13 @@ class YahooFetcher:
 
                 for ticker in chunk:
                     try:
-                        if len(chunk) == 1:
-                            ticker_df = df
-                        else:
-                            if ticker not in df.columns.get_level_values(0):
-                                results.append(TickerPriceData(ticker=ticker, bars=[], error="Ticker not in response"))
-                                failed += 1
-                                continue
-                            ticker_df = df[ticker]
+                        # yfinance 1.x always returns multi-level columns: (ticker, price_col)
+                        # with group_by="ticker", level 0 = ticker name
+                        if ticker not in df.columns.get_level_values(0):
+                            results.append(TickerPriceData(ticker=ticker, bars=[], error="Ticker not in response"))
+                            failed += 1
+                            continue
+                        ticker_df = df[ticker].copy()
 
                         ticker_df = ticker_df.dropna(subset=["Close"])
                         bars = []
@@ -103,60 +102,74 @@ class YahooFetcher:
         )
 
     @staticmethod
+    def _fetch_single_fundamental(ticker_symbol: str) -> FundamentalData:
+        """Fetch fundamental data for a single ticker. Used by ThreadPoolExecutor."""
+        try:
+            ticker = yf.Ticker(ticker_symbol)
+            info = ticker.info
+
+            if not info or "symbol" not in info:
+                return FundamentalData(ticker=ticker_symbol, error="No info returned")
+
+            return FundamentalData(
+                ticker=ticker_symbol,
+                company_name=info.get("longName") or info.get("shortName"),
+                sector=info.get("sector"),
+                industry=info.get("industry"),
+                exchange=info.get("exchange"),
+                pe_ratio=_safe_float(info.get("trailingPE")),
+                forward_pe=_safe_float(info.get("forwardPE")),
+                peg_ratio=_safe_float(info.get("pegRatio")),
+                price_to_book=_safe_float(info.get("priceToBook")),
+                revenue_per_share=_safe_float(info.get("revenuePerShare")),
+                earnings_per_share=_safe_float(info.get("trailingEps")),
+                debt_to_equity=_safe_float(info.get("debtToEquity")),
+                profit_margin=_safe_float(info.get("profitMargins")),
+                operating_margin=_safe_float(info.get("operatingMargins")),
+                return_on_equity=_safe_float(info.get("returnOnEquity")),
+                free_cash_flow=_safe_float(info.get("freeCashflow")),
+                dividend_yield=_safe_float(info.get("dividendYield")),
+                revenue=_safe_float(info.get("totalRevenue")),
+                market_cap=_safe_float(info.get("marketCap")),
+                beta=_safe_float(info.get("beta")),
+                fifty_two_week_high=_safe_float(info.get("fiftyTwoWeekHigh")),
+                fifty_two_week_low=_safe_float(info.get("fiftyTwoWeekLow")),
+                current_price=_safe_float(info.get("currentPrice") or info.get("regularMarketPrice")),
+                target_mean_price=_safe_float(info.get("targetMeanPrice")),
+                recommendation_key=info.get("recommendationKey"),
+                raw_info=info,
+            )
+
+        except Exception as e:
+            logger.error(f"Error fetching fundamentals for {ticker_symbol}: {e}")
+            return FundamentalData(ticker=ticker_symbol, error=str(e))
+
+    @staticmethod
     def fetch_fundamentals(tickers: list[str]) -> FetchFundamentalsResponse:
-        """Fetch fundamental data for multiple tickers sequentially."""
+        """Fetch fundamental data for multiple tickers using parallel threads."""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
         results: list[FundamentalData] = []
         successful = 0
         failed = 0
 
-        for ticker_symbol in tickers:
-            yahoo_rate_limiter.wait()
-            try:
-                ticker = yf.Ticker(ticker_symbol)
-                info = ticker.info
+        # Use 10 parallel workers — Yahoo tolerates moderate concurrency
+        max_workers = 10
+        logger.info(f"Fetching fundamentals for {len(tickers)} tickers ({max_workers} parallel workers)")
 
-                if not info or "symbol" not in info:
-                    results.append(FundamentalData(ticker=ticker_symbol, error="No info returned"))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_ticker = {
+                executor.submit(YahooFetcher._fetch_single_fundamental, t): t
+                for t in tickers
+            }
+
+            for future in as_completed(future_to_ticker):
+                result = future.result()
+                results.append(result)
+                if result.error is None:
+                    successful += 1
+                else:
                     failed += 1
-                    continue
-
-                fundamental = FundamentalData(
-                    ticker=ticker_symbol,
-                    company_name=info.get("longName") or info.get("shortName"),
-                    sector=info.get("sector"),
-                    industry=info.get("industry"),
-                    exchange=info.get("exchange"),
-                    pe_ratio=_safe_float(info.get("trailingPE")),
-                    forward_pe=_safe_float(info.get("forwardPE")),
-                    peg_ratio=_safe_float(info.get("pegRatio")),
-                    price_to_book=_safe_float(info.get("priceToBook")),
-                    revenue_per_share=_safe_float(info.get("revenuePerShare")),
-                    earnings_per_share=_safe_float(info.get("trailingEps")),
-                    debt_to_equity=_safe_float(info.get("debtToEquity")),
-                    profit_margin=_safe_float(info.get("profitMargins")),
-                    operating_margin=_safe_float(info.get("operatingMargins")),
-                    return_on_equity=_safe_float(info.get("returnOnEquity")),
-                    free_cash_flow=_safe_float(info.get("freeCashflow")),
-                    dividend_yield=_safe_float(info.get("dividendYield")),
-                    revenue=_safe_float(info.get("totalRevenue")),
-                    market_cap=_safe_float(info.get("marketCap")),
-                    beta=_safe_float(info.get("beta")),
-                    fifty_two_week_high=_safe_float(info.get("fiftyTwoWeekHigh")),
-                    fifty_two_week_low=_safe_float(info.get("fiftyTwoWeekLow")),
-                    current_price=_safe_float(info.get("currentPrice") or info.get("regularMarketPrice")),
-                    target_mean_price=_safe_float(info.get("targetMeanPrice")),
-                    recommendation_key=info.get("recommendationKey"),
-                    raw_info=info,
-                )
-                results.append(fundamental)
-                successful += 1
-
-            except Exception as e:
-                logger.error(f"Error fetching fundamentals for {ticker_symbol}: {e}")
-                results.append(FundamentalData(ticker=ticker_symbol, error=str(e)))
-                failed += 1
-
-            time.sleep(0.3)  # Small delay between individual requests
 
         return FetchFundamentalsResponse(
             data=results,

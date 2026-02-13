@@ -13,7 +13,22 @@ public class UserScanConfig
     public bool IsDefault { get; set; }
 
     // Pattern filters
-    public PatternType[] EnabledPatterns { get; set; } = Array.Empty<PatternType>();
+    public PatternType[] EnabledPatterns { get; set; } = new[]
+    {
+        PatternType.DoubleTop,
+        PatternType.DoubleBottom,
+        PatternType.HeadAndShoulders,
+        PatternType.InverseHeadAndShoulders,
+        PatternType.BullFlag,
+        PatternType.BearFlag,
+        PatternType.AscendingTriangle,
+        PatternType.DescendingTriangle,
+        PatternType.SymmetricalTriangle,
+        PatternType.RisingWedge,
+        PatternType.FallingWedge,
+        PatternType.Pennant,
+        PatternType.CupAndHandle,
+    };
 
     // Price range
     public decimal? PriceRangeMin { get; set; }
@@ -46,11 +61,12 @@ public class UserScanConfig
         ReportCategory.LongTermHold,
     };
 
+    // News + Reddit provide sufficient sentiment coverage; StockTwits rate limiter (~3 req/min)
+    // adds ~10 minutes of waiting for 30+ tickers with marginal data quality improvement
     public SentimentSource[] EnabledSentimentSources { get; set; } = new[]
     {
         SentimentSource.News,
         SentimentSource.Reddit,
-        SentimentSource.StockTwits,
     };
 
     public IndicatorType[] EnabledIndicators { get; set; } = new[]

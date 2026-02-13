@@ -201,15 +201,15 @@ def _fetch_fundamentals_for_tickers(tickers: list[str]) -> dict[str, dict]:
                 "free_cash_flow": _safe(info.get("freeCashflow")),
                 "dividend_yield": _safe(info.get("dividendYield")),
                 "revenue": _safe(info.get("totalRevenue")),
-                "revenue_growth": _safe(info.get("revenueGrowth")),
-                "earnings_growth": _safe(info.get("earningsGrowth")),
-                "eps": _safe(info.get("trailingEps")),
+                "revenue_per_share": _safe(info.get("revenuePerShare")),
+                "earnings_per_share": _safe(info.get("trailingEps")),
                 "market_cap": _safe(info.get("marketCap")),
                 "beta": _safe(info.get("beta")),
                 "fifty_two_week_high": _safe(info.get("fiftyTwoWeekHigh")),
                 "fifty_two_week_low": _safe(info.get("fiftyTwoWeekLow")),
                 "current_price": _safe(info.get("currentPrice") or info.get("regularMarketPrice")),
                 "target_mean_price": _safe(info.get("targetMeanPrice")),
+                "recommendation_key": info.get("recommendationKey"),
             }
 
             scores = _compute_scores(info)

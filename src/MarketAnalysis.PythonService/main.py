@@ -2,6 +2,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
+import os
+
+# Clear SSL certificate overrides that break yfinance on corporate networks
+for var in ("CURL_CA_BUNDLE", "REQUESTS_CA_BUNDLE"):
+    os.environ.pop(var, None)
 
 from routers import market_data, technicals, fundamentals, sentiment, scanner
 

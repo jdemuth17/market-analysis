@@ -23,6 +23,7 @@
                 <MudSelect T="string" @bind-Value="_moversIndex" Label="Index" Variant="Variant.Outlined" Dense="true">
                     <MudSelectItem Value="@("sp500")">S&P 500</MudSelectItem>
                     <MudSelectItem Value="@("nasdaq100")">NASDAQ 100</MudSelectItem>
+                    <MudSelectItem Value="@("nasdaq_all")">NASDAQ (All ~3,300)</MudSelectItem>
                 </MudSelect>
             </MudItem>
             <MudItem xs="12" md="4">
@@ -42,7 +43,7 @@
         {
             <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="mb-2" />
             <MudAlert Severity="Severity.Info">
-                Scanning @(_moversIndex == "sp500" ? "S&P 500 (~500" : "NASDAQ 100 (~100") tickers)...
+                Scanning @(_moversIndex switch { "sp500" => "S&P 500 (~500", "nasdaq100" => "NASDAQ 100 (~100", "nasdaq_all" => "NASDAQ All (~3,300", _ => _moversIndex + " (" }) tickers)...
                 This may take a few minutes due to rate limiting.
             </MudAlert>
         }

@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using MarketAnalysis.Core.DTOs;
 using MarketAnalysis.Core.Enums;
 using MarketAnalysis.Core.Interfaces;
@@ -23,6 +24,20 @@ public class PythonServiceClient : IPythonServiceClient
     {
         _http = http;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Converts a PascalCase C# enum name to snake_case for Python.
+    /// E.g. "DoubleTop" → "double_top", "RSI14" → "rsi_14", "SMA200" → "sma_200"
+    /// </summary>
+    private static string ToSnakeCase(string name)
+    {
+        // Insert underscore before uppercase letters preceded by lowercase or before digits preceded by letters
+        var result = Regex.Replace(name, @"([a-z])([A-Z])", "$1_$2");
+        result = Regex.Replace(result, @"([A-Z]+)([A-Z][a-z])", "$1_$2");
+        result = Regex.Replace(result, @"([a-zA-Z])(\d)", "$1_$2");
+        result = Regex.Replace(result, @"(\d)([a-zA-Z])", "$1_$2");
+        return result.ToLowerInvariant();
     }
 
     public async Task<FetchPricesResponseDto> FetchPricesAsync(
@@ -59,8 +74,8 @@ public class PythonServiceClient : IPythonServiceClient
                 adj_close = (double)b.AdjClose,
                 volume = b.Volume,
             }),
-            indicators = indicators.Select(i => i.ToString()),
-            patterns = patterns.Select(p => p.ToString()),
+            indicators = indicators.Select(i => ToSnakeCase(i.ToString())),
+            patterns = patterns.Select(p => ToSnakeCase(p.ToString())),
             lookback_days = lookbackDays,
         };
         var resp = await _http.PostAsJsonAsync("/api/technicals/full-analysis", payload, JsonOpts);
@@ -89,6 +104,29 @@ public class PythonServiceClient : IPythonServiceClient
         return (await resp.Content.ReadFromJsonAsync<FundamentalScoreDto>(JsonOpts))!;
     }
 
+    public async Task<BatchFundamentalScoreResponseDto> ScoreFundamentalsBatchAsync(List<FundamentalDataDto> items)
+    {
+        var payload = new BatchFundamentalScoreRequestDto(
+            items.Select(fd => new FundamentalScoreRequestDto(
+                Ticker: fd.Ticker,
+                PeRatio: fd.PeRatio,
+                ForwardPe: fd.ForwardPe,
+                PegRatio: fd.PegRatio,
+                DebtToEquity: fd.DebtToEquity,
+                ProfitMargin: fd.ProfitMargin,
+                ReturnOnEquity: fd.ReturnOnEquity,
+                FreeCashFlow: fd.FreeCashFlow,
+                RevenueGrowth: fd.RevenuePerShare,     // maps to revenue_growth in Python
+                EarningsGrowth: fd.EarningsPerShare,    // maps to earnings_growth in Python
+                CurrentPrice: fd.CurrentPrice,
+                TargetMeanPrice: fd.TargetMeanPrice
+            )).ToList()
+        );
+        var resp = await _http.PostAsJsonAsync("/api/fundamentals/score-batch", payload, JsonOpts);
+        resp.EnsureSuccessStatusCode();
+        return (await resp.Content.ReadFromJsonAsync<BatchFundamentalScoreResponseDto>(JsonOpts))!;
+    }
+
     public async Task<List<string>> GetTickerListAsync(string indexName)
     {
         // Map display names to Python's expected lowercase keys
@@ -96,6 +134,7 @@ public class PythonServiceClient : IPythonServiceClient
         {
             "S&P 500" or "SP500" or "s&p 500" => "sp500",
             "NASDAQ 100" or "NASDAQ100" or "nasdaq 100" => "nasdaq100",
+            "NASDAQ" or "NASDAQ All" or "nasdaq" or "nasdaq_all" => "nasdaq_all",
             _ => indexName.ToLowerInvariant().Replace(" ", "").Replace("&", ""),
         };
         _logger.LogInformation("Fetching ticker list for {Index} (python key: {Key})", indexName, pythonKey);

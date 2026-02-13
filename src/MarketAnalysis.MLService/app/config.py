@@ -5,7 +5,7 @@ class Settings(BaseSettings):
     model_config = {"env_file": ".env", "env_prefix": "ML_"}
 
     # Database (same PostgreSQL as Market Analysis)
-    database_url: str = "postgresql+asyncpg://market:dev_password@localhost:5433/market_analysis"
+    database_url: str = "postgresql+asyncpg://market:dev_password@127.0.0.1:5433/market_analysis?ssl=disable"
 
     # Existing Python service (for backfill calls)
     python_service_url: str = "http://localhost:8000"

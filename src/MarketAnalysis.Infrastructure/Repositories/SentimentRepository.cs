@@ -26,4 +26,18 @@ public class SentimentRepository : Repository<SentimentScore>, ISentimentReposit
             .GroupBy(s => s.Source)
             .Select(g => g.OrderByDescending(s => s.AnalysisDate).First())
             .ToListAsync();
+
+    public async Task<Dictionary<int, List<SentimentScore>>> GetLatestForStocksAsync(IEnumerable<int> stockIds)
+    {
+        var idList = stockIds.ToList();
+        // Get the latest sentiment per stock per source
+        var scores = await _dbSet
+            .Where(s => idList.Contains(s.StockId))
+            .GroupBy(s => new { s.StockId, s.Source })
+            .Select(g => g.OrderByDescending(s => s.AnalysisDate).First())
+            .ToListAsync();
+
+        return scores.GroupBy(s => s.StockId)
+            .ToDictionary(g => g.Key, g => g.ToList());
+    }
 }

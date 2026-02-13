@@ -19,12 +19,12 @@ BATCH_SIZE = 50
 
 
 async def _get_ticker_universe() -> list[str]:
-    """Fetch S&P 500 + NASDAQ 100 tickers from existing Python service."""
+    """Fetch S&P 500 + NASDAQ 100 + NASDAQ All tickers from existing Python service."""
     tickers = set()
     base_url = settings.python_service_url
 
     async with aiohttp.ClientSession() as http:
-        for index in ["sp500", "nasdaq100"]:
+        for index in ["sp500", "nasdaq100", "nasdaq_all"]:
             try:
                 async with http.get(f"{base_url}/api/market-data/ticker-lists/{index}") as resp:
                     if resp.status == 200:

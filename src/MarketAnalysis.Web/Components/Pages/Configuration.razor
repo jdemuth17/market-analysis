@@ -105,6 +105,31 @@ else if (_config is not null)
                 <MudCheckBox T="bool" Value="isEnabled" ValueChanged="(v) => ToggleCategory(cat, v)" Label="@cat.ToString()" />
             }
         </MudTabPanel>
+
+        <MudTabPanel Text="ML Scoring">
+            <MudGrid>
+                <MudItem xs="12">
+                    <MudSwitch @bind-Value="_config.UseMlScoring" Color="Color.Primary"
+                               Label="Use ML Ensemble Scoring" />
+                    <MudText Typo="Typo.body2" Class="mt-2" Style="color: var(--mud-palette-text-secondary);">
+                        When enabled, reports use trained XGBoost models instead of the legacy
+                        weighted-average scoring. The Weights tab settings are ignored when ML scoring is active.
+                    </MudText>
+                </MudItem>
+                <MudItem xs="12" Class="mt-2">
+                    <MudAlert Severity="@(_config.UseMlScoring ? Severity.Info : Severity.Normal)">
+                        @if (_config.UseMlScoring)
+                        {
+                            <span>ML scoring is <strong>ON</strong> — reports will use XGBoost ensemble predictions with SHAP feature importance.</span>
+                        }
+                        else
+                        {
+                            <span>ML scoring is <strong>OFF</strong> — reports use legacy weighted-average (Technical + Fundamental + Sentiment weights).</span>
+                        }
+                    </MudAlert>
+                </MudItem>
+            </MudGrid>
+        </MudTabPanel>
     </MudTabs>
 
     <MudPaper Class="pa-4 mt-4 d-flex justify-end" Elevation="0">
@@ -145,6 +170,7 @@ else if (_config is not null)
                 SentimentWeight = entity.SentimentWeight,
                 MinSentimentSampleSize = entity.MinSentimentSampleSize,
                 MinDailyVolume = entity.MinDailyVolume,
+                UseMlScoring = entity.UseMlScoring,
             };
             _enabledPatterns = new HashSet<PatternType>(entity.EnabledPatterns);
             _enabledCategories = new HashSet<ReportCategory>(entity.EnabledCategories);
@@ -182,6 +208,7 @@ else if (_config is not null)
             entity.SentimentWeight = _config.SentimentWeight;
             entity.MinSentimentSampleSize = _config.MinSentimentSampleSize;
             entity.MinDailyVolume = _config.MinDailyVolume;
+            entity.UseMlScoring = _config.UseMlScoring;
             entity.EnabledPatterns = _enabledPatterns.ToArray();
             entity.EnabledCategories = _enabledCategories.ToArray();
             entity.EnabledSentimentSources = _enabledSources.ToArray();
@@ -211,5 +238,6 @@ else if (_config is not null)
         public double SentimentWeight { get; set; }
         public int MinSentimentSampleSize { get; set; }
         public long? MinDailyVolume { get; set; }
+        public bool UseMlScoring { get; set; }
     }
 }

@@ -15,7 +15,11 @@ var config = builder.Configuration;
 
 // ----- Database -----
 builder.Services.AddDbContext<MarketAnalysisDbContext>(opts =>
-    opts.UseNpgsql(config.GetConnectionString("DefaultConnection")));
+    opts.UseNpgsql(config.GetConnectionString("DefaultConnection"),
+        npgsqlOpts => npgsqlOpts.EnableRetryOnFailure(
+            maxRetryCount: 3,
+            maxRetryDelay: TimeSpan.FromSeconds(5),
+            errorCodesToAdd: null)));
 
 // ----- Repositories -----
 builder.Services.AddScoped<IStockRepository, StockRepository>();
@@ -32,7 +36,7 @@ builder.Services.AddScoped<IIndexDefinitionRepository, IndexDefinitionRepository
 builder.Services.AddHttpClient<IPythonServiceClient, PythonServiceClient>(client =>
 {
     client.BaseAddress = new Uri(config["PythonService:BaseUrl"] ?? "http://localhost:8000");
-    client.Timeout = TimeSpan.FromMinutes(5);
+    client.Timeout = TimeSpan.FromMinutes(10); // Single-batch sentiment call may process 30+ tickers
 })
 .AddPolicyHandler(HttpPolicyExtensions
     .HandleTransientHttpError()
@@ -44,7 +48,7 @@ builder.Services.AddHttpClient<IPythonServiceClient, PythonServiceClient>(client
 // ----- ML Service HTTP Client with Polly -----
 builder.Services.AddHttpClient<IMLServiceClient, MLServiceClient>(client =>
 {
-    client.BaseAddress = new Uri(config["MLService:BaseUrl"] ?? "http://localhost:8002");
+    client.BaseAddress = new Uri(config["MLService:BaseUrl"] ?? "http://localhost:8003");
     client.Timeout = TimeSpan.FromMinutes(2);
 })
 .AddPolicyHandler(HttpPolicyExtensions
@@ -63,7 +67,7 @@ builder.Services.AddScoped<IDailyScanService, DailyScanService>();
 // ----- ML Retraining Service (reuses ML Service HTTP client) -----
 builder.Services.AddHttpClient<IMLRetrainingService, MLRetrainingService>(client =>
 {
-    client.BaseAddress = new Uri(config["MLService:BaseUrl"] ?? "http://localhost:8002");
+    client.BaseAddress = new Uri(config["MLService:BaseUrl"] ?? "http://localhost:8003");
     client.Timeout = TimeSpan.FromMinutes(130); // Long timeout for backfill + training
 })
 .AddPolicyHandler(HttpPolicyExtensions

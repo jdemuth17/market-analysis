@@ -26,3 +26,11 @@ class FundamentalScoreResponse(BaseModel):
     composite_score: float  # 0-100, weighted overall
     details: dict = {}
     error: Optional[str] = None
+
+
+class BatchFundamentalScoreRequest(BaseModel):
+    items: list[FundamentalScoreRequest]
+
+
+class BatchFundamentalScoreResponse(BaseModel):
+    scores: list[FundamentalScoreResponse]

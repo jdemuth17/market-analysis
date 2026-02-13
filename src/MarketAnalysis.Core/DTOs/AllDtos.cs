@@ -66,6 +66,29 @@ public record FundamentalScoreDto(
     string? Error = null
 );
 
+public record FundamentalScoreRequestDto(
+    string Ticker,
+    double? PeRatio = null,
+    double? ForwardPe = null,
+    double? PegRatio = null,
+    double? DebtToEquity = null,
+    double? ProfitMargin = null,
+    double? ReturnOnEquity = null,
+    double? FreeCashFlow = null,
+    double? RevenueGrowth = null,
+    double? EarningsGrowth = null,
+    double? CurrentPrice = null,
+    double? TargetMeanPrice = null
+);
+
+public record BatchFundamentalScoreRequestDto(
+    List<FundamentalScoreRequestDto> Items
+);
+
+public record BatchFundamentalScoreResponseDto(
+    List<FundamentalScoreDto> Scores
+);
+
 // --- Technical DTOs ---
 
 public record IndicatorValueDto(

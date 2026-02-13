@@ -1,0 +1,121 @@
+{
+  "category": "DayTrade",
+  "metrics": {
+    "category": "DayTrade",
+    "auc": 0.7180227588143183,
+    "precision": 0.26393422893505636,
+    "recall": 0.7882157378080283,
+    "f1": 0.3954514462169579,
+    "brier_score": 0.21992400288581848,
+    "log_loss": 0.608291313802319,
+    "cv_auc_mean": 0.7151126345295987,
+    "cv_auc_std": 0.007664367614427825,
+    "cv_folds": 5,
+    "train_samples": 1033902,
+    "val_samples": 258476,
+    "positive_rate_train": 0.17554661853831408,
+    "positive_rate_val": 0.1722287562481623,
+    "scale_pos_weight": 4.72,
+    "best_iteration": 174
+  },
+  "feature_importance": [
+    {
+      "feature": "atr_normalized",
+      "importance": 1843.8421630859375
+    },
+    {
+      "feature": "volume_ratio_20d",
+      "importance": 64.8968505859375
+    },
+    {
+      "feature": "obv_slope_5d",
+      "importance": 42.9234733581543
+    },
+    {
+      "feature": "sma50_sma200_ratio",
+      "importance": 41.5328369140625
+    },
+    {
+      "feature": "bollinger_pct_b",
+      "importance": 39.97843933105469
+    },
+    {
+      "feature": "stoch_k",
+      "importance": 33.97624969482422
+    },
+    {
+      "feature": "sma20_sma50_ratio",
+      "importance": 33.71779251098633
+    },
+    {
+      "feature": "stoch_d",
+      "importance": 31.002044677734375
+    },
+    {
+      "feature": "macd_signal",
+      "importance": 29.7420597076416
+    },
+    {
+      "feature": "rsi_14",
+      "importance": 29.587024688720703
+    },
+    {
+      "feature": "macd_histogram",
+      "importance": 28.691612243652344
+    },
+    {
+      "feature": "adx",
+      "importance": 25.75613784790039
+    }
+  ],
+  "feature_names": [
+    "rsi_14",
+    "macd_signal",
+    "macd_histogram",
+    "sma20_sma50_ratio",
+    "sma50_sma200_ratio",
+    "bollinger_pct_b",
+    "adx",
+    "atr_normalized",
+    "stoch_k",
+    "stoch_d",
+    "obv_slope_5d",
+    "volume_ratio_20d",
+    "best_pattern_confidence",
+    "best_pattern_direction",
+    "num_active_patterns",
+    "days_since_pattern",
+    "pe_ratio",
+    "forward_pe",
+    "peg_ratio",
+    "price_to_book",
+    "profit_margin",
+    "operating_margin",
+    "roe",
+    "debt_to_equity",
+    "fcf_to_mcap",
+    "revenue_per_share",
+    "earnings_per_share",
+    "beta",
+    "dividend_yield",
+    "value_score",
+    "quality_score",
+    "growth_score",
+    "safety_score",
+    "news_positive",
+    "news_negative",
+    "news_neutral",
+    "reddit_positive",
+    "reddit_negative",
+    "reddit_neutral",
+    "stocktwits_positive",
+    "stocktwits_negative",
+    "stocktwits_neutral",
+    "sentiment_sample_size"
+  ],
+  "config": {
+    "n_estimators": 500,
+    "max_depth": 6,
+    "learning_rate": 0.05
+  }
+}

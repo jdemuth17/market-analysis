@@ -108,11 +108,71 @@ def get_nasdaq100_tickers(use_cache: bool = True) -> list[str]:
         return []
 
 
+def get_nasdaq_all_tickers(use_cache: bool = True) -> list[str]:
+    """
+    Get ALL NASDAQ-listed tickers from the official NASDAQ Trader symbol directory.
+    This returns ~3,300 stocks (all common stocks, excluding ETFs/warrants/test issues).
+    """
+    cache_path = _get_cache_path("nasdaq_all")
+
+    if use_cache and _is_cache_valid(cache_path, max_age_hours=24):  # Shorter cache for full list
+        with open(cache_path) as f:
+            return json.load(f)
+
+    try:
+        # Official NASDAQ FTP symbol directory (accessible via HTTPS)
+        url = "https://www.nasdaqtrader.com/dynamic/symdir/nasdaqlisted.txt"
+        resp = requests.get(url, headers=_HEADERS, timeout=30, verify=certifi.where())
+        resp.raise_for_status()
+
+        # Parse pipe-delimited file (skip header and footer)
+        lines = resp.text.strip().split('\n')
+        tickers = []
+
+        for line in lines[1:]:  # Skip header
+            if '|' not in line:
+                continue
+            parts = line.split('|')
+            if len(parts) < 7:
+                continue
+
+            symbol = parts[0].strip()
+            test_issue = parts[3].strip()  # 'Y' = test issue
+            etf = parts[5].strip()  # 'Y' = ETF
+
+            # Skip test issues, ETFs, and symbols with special characters
+            if test_issue == 'Y' or etf == 'Y':
+                continue
+            if not symbol or symbol.startswith('File Creation'):
+                continue
+            if any(c in symbol for c in ['^', '$', '.', ' ']):
+                continue
+
+            tickers.append(symbol)
+
+        tickers = sorted(set(tickers))
+
+        with open(cache_path, "w") as f:
+            json.dump(tickers, f)
+
+        logger.info(f"Fetched {len(tickers)} NASDAQ tickers from nasdaqtrader.com")
+        return tickers
+
+    except Exception as e:
+        logger.error(f"Failed to fetch NASDAQ tickers: {e}")
+        if cache_path.exists():
+            with open(cache_path) as f:
+                return json.load(f)
+        return []
+
+
 def get_tickers_for_index(index_name: str) -> list[str]:
     """Get tickers for a named index."""
     index_map = {
         "sp500": get_sp500_tickers,
         "nasdaq100": get_nasdaq100_tickers,
+        "nasdaq": get_nasdaq_all_tickers,
+        "nasdaq_all": get_nasdaq_all_tickers,
     }
     fn = index_map.get(index_name.lower())
     if fn:

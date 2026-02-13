@@ -1,0 +1,9 @@
+{
+  "trained_at": "2026-02-13T16:50:56.582996",
+  "dataset_rows": 1294928,
+  "feature_count": 43,
+  "xgboost_categories": [],
+  "lstm_categories": [],
+  "ensemble_categories": [],
+  "metrics": {}
+}
