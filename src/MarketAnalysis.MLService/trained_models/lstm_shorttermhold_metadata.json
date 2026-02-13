@@ -1,0 +1,27 @@
+{
+  "category": "ShortTermHold",
+  "metrics": {
+    "category": "ShortTermHold",
+    "auc": 0.7122450257664341,
+    "precision": 0.5078003120124805,
+    "recall": 0.020188550517893693,
+    "f1": 0.03883321403006442,
+    "val_loss": 0.4113,
+    "best_epoch": 2,
+    "total_epochs": 12,
+    "train_samples": 893413,
+    "val_samples": 223354,
+    "training_time_sec": 487.0,
+    "device": "cuda"
+  },
+  "config": {
+    "hidden_size_1": 128,
+    "hidden_size_2": 64,
+    "dropout": 0.3,
+    "sequence_length": 60,
+    "batch_size": 256,
+    "learning_rate": 0.001,
+    "epochs": 50,
+    "patience": 10
+  }
+}

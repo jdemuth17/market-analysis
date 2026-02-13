@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     lstm_learning_rate: float = 0.001
 
     # Feature config
-    num_features: int = 45
+    num_features: int = 43
 
     # Backfill
     backfill_price_period: str = "3y"

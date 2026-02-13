@@ -30,6 +30,10 @@ src/MarketAnalysis.PythonService/.cache/
 src/MarketAnalysis.PythonService/finbert_model/
 src/MarketAnalysis.PythonService/finbert-sentiment/
 
+## ML training data (regenerated from DB via backfill)
+src/MarketAnalysis.MLService/training_data/training_dataset.parquet
+src/MarketAnalysis.MLService/training_data/dataset_stats.json
+
 ## IDE / Editor
 .vs/
 .vscode/

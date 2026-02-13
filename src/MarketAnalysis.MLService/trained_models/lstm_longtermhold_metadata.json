@@ -1,0 +1,27 @@
+{
+  "category": "LongTermHold",
+  "metrics": {
+    "category": "LongTermHold",
+    "auc": 0.68418136171122,
+    "precision": 0.0,
+    "recall": 0.0,
+    "f1": 0.0,
+    "val_loss": 0.4804,
+    "best_epoch": 1,
+    "total_epochs": 11,
+    "train_samples": 853233,
+    "val_samples": 213309,
+    "training_time_sec": 429.7,
+    "device": "cuda"
+  },
+  "config": {
+    "hidden_size_1": 128,
+    "hidden_size_2": 64,
+    "dropout": 0.3,
+    "sequence_length": 60,
+    "batch_size": 256,
+    "learning_rate": 0.001,
+    "epochs": 50,
+    "patience": 10
+  }
+}

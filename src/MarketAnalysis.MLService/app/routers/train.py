@@ -232,6 +232,11 @@ async def _run_training(job_id: str, models: list[str], categories: list[str]):
 
                 # XGBoost predictions on calibration set
                 X_cal = normalizer.transform(cal_set[feature_cols])
+                # Ensure X_cal is a DataFrame with feature names (XGBoost requires them)
+                if not isinstance(X_cal, pd.DataFrame):
+                    X_cal = pd.DataFrame(X_cal, columns=feature_cols)
+                elif list(X_cal.columns) != feature_cols:
+                    X_cal.columns = feature_cols
                 xgb_model = model_registry.xgboost_models[category]
                 xgb_preds = xgb_model.predict_proba(X_cal)[:, 1]
 

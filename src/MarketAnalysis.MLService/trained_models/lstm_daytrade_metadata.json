@@ -1,0 +1,27 @@
+{
+  "category": "DayTrade",
+  "metrics": {
+    "category": "DayTrade",
+    "auc": 0.7282587995180582,
+    "precision": 0.6822429906542056,
+    "recall": 0.017134362612142708,
+    "f1": 0.0334291602004732,
+    "val_loss": 0.4093,
+    "best_epoch": 10,
+    "total_epochs": 20,
+    "train_samples": 911595,
+    "val_samples": 227899,
+    "training_time_sec": 830.3,
+    "device": "cuda"
+  },
+  "config": {
+    "hidden_size_1": 128,
+    "hidden_size_2": 64,
+    "dropout": 0.3,
+    "sequence_length": 60,
+    "batch_size": 256,
+    "learning_rate": 0.001,
+    "epochs": 50,
+    "patience": 10
+  }
+}

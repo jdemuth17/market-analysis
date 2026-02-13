@@ -1,0 +1,27 @@
+{
+  "category": "SwingTrade",
+  "metrics": {
+    "category": "SwingTrade",
+    "auc": 0.7113298523526865,
+    "precision": 0.54005400540054,
+    "recall": 0.016749015995310274,
+    "f1": 0.03249038826013971,
+    "val_loss": 0.4143,
+    "best_epoch": 3,
+    "total_epochs": 13,
+    "train_samples": 903505,
+    "val_samples": 225877,
+    "training_time_sec": 537.5,
+    "device": "cuda"
+  },
+  "config": {
+    "hidden_size_1": 128,
+    "hidden_size_2": 64,
+    "dropout": 0.3,
+    "sequence_length": 60,
+    "batch_size": 256,
+    "learning_rate": 0.001,
+    "epochs": 50,
+    "patience": 10
+  }
+}

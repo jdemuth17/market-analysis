@@ -92,13 +92,18 @@ class ModelRegistry:
             import torch
             from app.models.lstm_model import StockLSTM
 
+            # Detect actual input_size from saved state dict
+            state_dict = torch.load(str(path), map_location="cpu", weights_only=True)
+            # lstm1.weight_ih_l0 shape is (4*hidden_size, input_size)
+            actual_input_size = state_dict["lstm1.weight_ih_l0"].shape[1]
+
             model = StockLSTM(
-                input_size=settings.num_features,
+                input_size=actual_input_size,
                 hidden_size_1=settings.lstm_hidden_size_1,
                 hidden_size_2=settings.lstm_hidden_size_2,
                 dropout=settings.lstm_dropout,
             )
-            model.load_state_dict(torch.load(str(path), map_location="cpu", weights_only=True))
+            model.load_state_dict(state_dict)
             model.eval()
             self.lstm_models[category] = model
             logger.info(f"Loaded LSTM model: {category}")
