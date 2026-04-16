@@ -84,13 +84,14 @@ public class PythonServiceClient : IPythonServiceClient
     }
 
     public async Task<FullSentimentResponseDto> RunSentimentPipelineAsync(
-        List<string> tickers, List<SentimentSource> sources, int maxItemsPerSource = 30)
+        List<string> tickers, List<SentimentSource> sources, int maxItemsPerSource = 30, bool lowResourceMode = false)
     {
         var payload = new
         {
             tickers,
             sources = sources.Select(s => s.ToString().ToLowerInvariant()),
             max_items_per_source = maxItemsPerSource,
+            low_resource_mode = lowResourceMode,
         };
         var resp = await _http.PostAsJsonAsync("/api/sentiment/full-pipeline", payload, JsonOpts);
         resp.EnsureSuccessStatusCode();

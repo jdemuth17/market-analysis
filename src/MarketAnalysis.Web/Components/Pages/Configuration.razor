@@ -73,6 +73,13 @@ else if (_config is not null)
                 <MudItem xs="12" md="6">
                     <MudNumericField @bind-Value="_config.MinSentimentSampleSize" Label="Min Sentiment Samples" Variant="Variant.Outlined" />
                 </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudSwitch @bind-Value="_config.LowResourceMode" Color="Color.Primary" Label="Low Resource Mode (VADER)" />
+                    <MudText Typo="Typo.caption" Class="ml-2" Style="color: var(--mud-palette-text-secondary);">
+                        When enabled, uses the lightweight VADER analyzer instead of FinBERT. 
+                        Reduces RAM usage by ~2GB and improves speed on low-spec hardware.
+                    </MudText>
+                </MudItem>
                 <MudItem xs="12">
                     <MudText Typo="Typo.subtitle1" Class="mb-2">Enabled Sources</MudText>
                     @foreach (var source in Enum.GetValues<SentimentSource>())
@@ -171,6 +178,7 @@ else if (_config is not null)
                 MinSentimentSampleSize = entity.MinSentimentSampleSize,
                 MinDailyVolume = entity.MinDailyVolume,
                 UseMlScoring = entity.UseMlScoring,
+                LowResourceMode = entity.LowResourceMode,
             };
             _enabledPatterns = new HashSet<PatternType>(entity.EnabledPatterns);
             _enabledCategories = new HashSet<ReportCategory>(entity.EnabledCategories);
@@ -209,6 +217,7 @@ else if (_config is not null)
             entity.MinSentimentSampleSize = _config.MinSentimentSampleSize;
             entity.MinDailyVolume = _config.MinDailyVolume;
             entity.UseMlScoring = _config.UseMlScoring;
+            entity.LowResourceMode = _config.LowResourceMode;
             entity.EnabledPatterns = _enabledPatterns.ToArray();
             entity.EnabledCategories = _enabledCategories.ToArray();
             entity.EnabledSentimentSources = _enabledSources.ToArray();
@@ -239,5 +248,6 @@ else if (_config is not null)
         public int MinSentimentSampleSize { get; set; }
         public long? MinDailyVolume { get; set; }
         public bool UseMlScoring { get; set; }
+        public bool LowResourceMode { get; set; }
     }
 }

@@ -20,6 +20,7 @@ class ModelRegistry:
         self.xgboost_models: dict[str, xgb.XGBClassifier] = {}
         self.lstm_models: dict[str, object] = {}  # PyTorch models loaded lazily
         self.ensemble_weights: dict[str, dict[str, float]] = {}
+        self.calibration_thresholds: dict[str, dict] = {}
         self.model_dir = Path(settings.model_dir)
         self._normalizer = None
         self._training_summary: Optional[dict] = None
@@ -74,6 +75,14 @@ class ModelRegistry:
             self._normalizer = FeatureNormalizer()
             self._normalizer.load(normalizer_path)
             loaded += 1
+
+        # Calibration thresholds
+        calibration_path = self.model_dir / "calibration.json"
+        if calibration_path.exists():
+            with open(calibration_path) as f:
+                data = json.load(f)
+                self.calibration_thresholds = data.get("thresholds", {})
+            logger.info(f"Loaded calibration thresholds for {list(self.calibration_thresholds.keys())}")
 
         # Training summary
         summary_path = self.model_dir / "training_summary.json"
@@ -130,6 +139,13 @@ class ModelRegistry:
     def get_lstm_metadata(self, category: str) -> Optional[dict]:
         """Return LSTM training metadata for a specific category."""
         return self._lstm_metadata.get(category)
+
+    def get_calibration_threshold(self, category: str) -> Optional[float]:
+        """Return the ensemble decision threshold (0-1) for a category, or None if not calibrated."""
+        cat = self.calibration_thresholds.get(category)
+        if cat:
+            return cat.get("ensemble")
+        return None
 
     def get_status(self) -> dict:
         return {

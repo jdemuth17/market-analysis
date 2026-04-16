@@ -1,0 +1,286 @@
+@page "/ml-management"
+
+@using MarketAnalysis.Core.DTOs
+@using MarketAnalysis.Core.Enums
+@using MarketAnalysis.Core.Interfaces
+@inject IMLServiceClient MLClient
+@inject IMLRetrainingService RetrainingService
+@inject ISnackbar Snackbar
+
+@implements IDisposable
+
+<PageTitle>ML Management - Market Analysis</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">ML Management</MudText>
+
+<MudGrid>
+    <!-- Service Health & Status -->
+    <MudItem xs="12" md="4">
+        <MudCard Elevation="2" Class="h-100">
+            <MudCardHeader>
+                <CardHeaderContent>
+                    <MudText Typo="Typo.h6">Service Status</MudText>
+                </CardHeaderContent>
+            </MudCardHeader>
+            <MudCardContent>
+                <div class="d-flex align-center mb-4">
+                    <MudIcon Icon="@(_mlHealthy ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Error)" 
+                             Color="@(_mlHealthy ? Color.Success : Color.Error)" Size="Size.Large" Class="mr-3" />
+                    <div>
+                        <MudText Typo="Typo.subtitle1">ML Scoring Service</MudText>
+                        <MudText Typo="Typo.body2" Color="@(_mlHealthy ? Color.Success : Color.Error)">
+                            @(_mlHealthy ? "Operational" : "Unavailable")
+                        </MudText>
+                    </div>
+                </div>
+
+                @if (_monitor != null)
+                {
+                    <MudDivider Class="my-2" />
+                    <MudText Typo="Typo.subtitle2">Model Health: <MudText T="string" Inline="true" Color="@GetStatusColor(_monitor.Status)">@_monitor.Status.ToUpper()</MudText></MudText>
+                    <MudText Typo="Typo.caption">Last Trained: @(_monitor.LastTrained ?? "Unknown")</MudText>
+                    
+                    <MudText Typo="Typo.subtitle2" Class="mt-4 mb-1">Loaded Models</MudText>
+                    <div class="d-flex flex-wrap gap-1">
+                        @foreach (var model in _monitor.ModelsLoaded)
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="@(model.Value ? Color.Success : Color.Default)" Variant="Variant.Outlined">
+                                @model.Key
+                            </MudChip>
+                        }
+                    </div>
+                }
+            </MudCardContent>
+            <MudCardActions>
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="RefreshStatus" Disabled="_loading">
+                    Refresh
+                </MudButton>
+            </MudCardActions>
+        </MudCard>
+    </MudItem>
+
+    <!-- Retraining Controls -->
+    <MudItem xs="12" md="8">
+        <MudCard Elevation="2" Class="h-100">
+            <MudCardHeader>
+                <CardHeaderContent>
+                    <MudText Typo="Typo.h6">Model Retraining</MudText>
+                </CardHeaderContent>
+            </MudCardHeader>
+            <MudCardContent>
+                <MudText Typo="Typo.body2" Class="mb-4">
+                    Trigger a full 3-year historical backfill followed by model retraining. 
+                    This process updates historical technical patterns, refreshes the training dataset, 
+                    and optimizes XGBoost and LSTM weights.
+                </MudText>
+
+                @if (_retrainStatus.IsRunning)
+                {
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Filled" Class="mb-4">
+                        <div class="d-flex align-center">
+                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-3" />
+                            <div>
+                                <MudText Typo="Typo.subtitle2">Retraining in Progress...</MudText>
+                                <MudText Typo="Typo.body2">Current Phase: <strong>@_retrainStatus.CurrentPhase</strong></MudText>
+                                @if (!string.IsNullOrEmpty(_retrainStatus.CurrentJobId))
+                                {
+                                    <MudText Typo="Typo.caption">Job ID: @_retrainStatus.CurrentJobId</MudText>
+                                }
+                            </div>
+                        </div>
+                    </MudAlert>
+                }
+                else if (!string.IsNullOrEmpty(_retrainStatus.ErrorMessage))
+                {
+                    <MudAlert Severity="Severity.Error" Class="mb-4">
+                        Retraining Failed: @_retrainStatus.ErrorMessage
+                    </MudAlert>
+                }
+                else if (_retrainStatus.CurrentPhase == "Completed")
+                {
+                    <MudAlert Severity="Severity.Success" Class="mb-4">
+                        Retraining completed successfully at @(DateTime.Parse(_retrainStatus.StartedAt ?? DateTime.UtcNow.ToString()).ToLocalTime().ToString("g"))
+                    </MudAlert>
+                }
+
+                <div class="d-flex gap-4">
+                    <MudSelect T="string" Label="Models to Train" MultiSelection="true" @bind-SelectedValues="_selectedModels" Variant="Variant.Outlined" AnchorOrigin="Origin.BottomCenter">
+                        <MudSelectItem Value="@("xgboost")">XGBoost (Classification)</MudSelectItem>
+                        <MudSelectItem Value="@("lstm")">LSTM (Temporal)</MudSelectItem>
+                        <MudSelectItem Value="@("ensemble")">Ensemble Calibration</MudSelectItem>
+                    </MudSelect>
+                </div>
+            </MudCardContent>
+            <MudCardActions>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" 
+                           StartIcon="@Icons.Material.Filled.ModelTraining"
+                           OnClick="StartRetraining" Disabled="_retrainStatus.IsRunning || !_mlHealthy">
+                    Start Full Retraining
+                </MudButton>
+            </MudCardActions>
+        </MudCard>
+    </MudItem>
+
+    <!-- Drift Alerts -->
+    @if (_monitor?.DriftAlerts.Any() == true)
+    {
+        <MudItem xs="12">
+            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-4">
+                <MudText Typo="Typo.subtitle2">Detected Drift & Model Alerts</MudText>
+                <MudList T="string" Dense="true">
+                    @foreach (var alert in _monitor.DriftAlerts)
+                    {
+                        <MudListItem Icon="@GetAlertIcon(alert.Severity)">
+                            <MudText Typo="Typo.body2"><strong>@alert.Category (@alert.Metric):</strong> @alert.Message</MudText>
+                        </MudListItem>
+                    }
+                </MudList>
+            </MudAlert>
+        </MudItem>
+    }
+
+    <!-- Performance Metrics -->
+    <MudItem xs="12">
+        <MudCard Elevation="2">
+            <MudCardHeader>
+                <CardHeaderContent>
+                    <MudText Typo="Typo.h6">Model Performance Metrics</MudText>
+                </CardHeaderContent>
+            </MudCardHeader>
+            <MudCardContent>
+                @if (_performance == null)
+                {
+                    <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+                }
+                else
+                {
+                    <MudDataGrid Items="@_performance.Entries" Dense="true" Hover="true" Striped="true">
+                        <Columns>
+                            <PropertyColumn Property="x => x.Category" Title="Category" />
+                            <PropertyColumn Property="x => x.ModelType" Title="Model Type">
+                                <CellTemplate>
+                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text">@context.Item.ModelType.ToUpper()</MudChip>
+                                </CellTemplate>
+                            </PropertyColumn>
+                            <PropertyColumn Property="x => x.Auc" Title="AUC (Test)">
+                                <CellTemplate>
+                                    <MudText Typo="Typo.body2" Color="@(context.Item.Auc > 0.7 ? Color.Success : Color.Warning)">
+                                        @(context.Item.Auc?.ToString("P1") ?? "N/A")
+                                    </MudText>
+                                </CellTemplate>
+                            </PropertyColumn>
+                            <PropertyColumn Property="x => x.Precision" Title="Precision" Format="P1" />
+                            <PropertyColumn Property="x => x.Recall" Title="Recall" Format="P1" />
+                            <PropertyColumn Property="x => x.F1" Title="F1 Score" Format="P1" />
+                            <PropertyColumn Property="x => x.TrainedAt" Title="Last Trained" />
+                        </Columns>
+                    </MudDataGrid>
+                }
+            </MudCardContent>
+        </MudCard>
+    </MudItem>
+</MudGrid>
+
+@code {
+    private bool _mlHealthy;
+    private bool _loading;
+    private MLMonitorResponseDto? _monitor;
+    private MLPerformanceResponseDto? _performance;
+    private MLRetrainingStatusDto _retrainStatus = new(false, null, null, null, null);
+    private IEnumerable<string> _selectedModels = new List<string> { "xgboost", "lstm", "ensemble" };
+    private CancellationTokenSource? _pollCts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshStatus();
+        StartPolling();
+    }
+
+    private async Task RefreshStatus()
+    {
+        _loading = true;
+        try
+        {
+            _mlHealthy = await MLClient.HealthCheckAsync();
+            if (_mlHealthy)
+            {
+                _monitor = await MLClient.GetMonitoringStatusAsync();
+                _performance = await MLClient.GetPerformanceAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to fetch ML status: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task StartRetraining()
+    {
+        if (!_selectedModels.Any())
+        {
+            Snackbar.Add("Select at least one model type to train.", Severity.Warning);
+            return;
+        }
+
+        Snackbar.Add("ML Retraining pipeline started in background...", Severity.Info);
+        
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await RetrainingService.RunRetrainingAsync(_selectedModels.ToList());
+            }
+            catch (Exception ex)
+            {
+                // Managed by service status
+            }
+        });
+    }
+
+    private void StartPolling()
+    {
+        _pollCts?.Cancel();
+        _pollCts = new CancellationTokenSource();
+        var token = _pollCts.Token;
+
+        _ = Task.Run(async () =>
+        {
+            while (!token.IsCancellationRequested)
+            {
+                try
+                {
+                    _retrainStatus = RetrainingService.GetStatus();
+                    await InvokeAsync(StateHasChanged);
+                    await Task.Delay(2000, token);
+                }
+                catch (OperationCanceledException) { break; }
+                catch { break; }
+            }
+        });
+    }
+
+    private Color GetStatusColor(string status) => status.ToLower() switch
+    {
+        "healthy" => Color.Success,
+        "degraded" => Color.Warning,
+        "critical" => Color.Error,
+        _ => Color.Default
+    };
+
+    private string GetAlertIcon(string severity) => severity.ToLower() switch
+    {
+        "critical" => Icons.Material.Filled.NewReleases,
+        "warning" => Icons.Material.Filled.Warning,
+        _ => Icons.Material.Filled.Info
+    };
+
+    public void Dispose()
+    {
+        _pollCts?.Cancel();
+        _pollCts?.Dispose();
+    }
+}

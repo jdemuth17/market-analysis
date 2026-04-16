@@ -255,10 +255,36 @@ async def _run_training(job_id: str, models: list[str], categories: list[str]):
                 lstm_model = model_registry.lstm_models[category]
                 lstm_model.eval()
                 device = next(lstm_model.parameters()).device
-                with torch.no_grad():
-                    tensor = torch.FloatTensor(X_seq_cal).to(device)
-                    prob, _ = lstm_model(tensor)
-                    lstm_preds = prob.squeeze().cpu().numpy()
+
+                # Run LSTM calibration inference in batches to avoid moving
+                # the entire calibration tensor to the device at once.
+                try:
+                    from torch.utils.data import TensorDataset, DataLoader
+
+                    X_np = np.asarray(X_seq_cal, dtype=np.float32)
+                    ds = TensorDataset(torch.from_numpy(X_np))
+                    loader = DataLoader(
+                        ds,
+                        batch_size=max(1, int(settings.lstm_batch_size)),
+                        shuffle=False,
+                        num_workers=0,
+                        pin_memory=(device.type == "cuda"),
+                    )
+
+                    preds_list = []
+                    with torch.no_grad():
+                        for (Xb,) in loader:
+                            Xb = Xb.to(device)
+                            prob, _ = lstm_model(Xb)
+                            preds_list.append(prob.squeeze().cpu().numpy())
+
+                    lstm_preds = np.concatenate(preds_list) if preds_list else np.array([])
+                except Exception as e:
+                    logger.exception("Batched LSTM inference failed, falling back to all-at-once: %s", e)
+                    with torch.no_grad():
+                        tensor = torch.FloatTensor(X_seq_cal).to(device)
+                        prob, _ = lstm_model(tensor)
+                        lstm_preds = prob.squeeze().cpu().numpy()
 
                 # Align lengths (LSTM sequences may be shorter)
                 min_len = min(len(xgb_preds), len(lstm_preds), len(y_cls_cal))
@@ -354,4 +380,190 @@ async def get_training_status(job_id: str):
         completed_at=job.get("completed_at"),
         metrics=job.get("metrics"),
         error=job.get("error"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Threshold calibration endpoint
+# ---------------------------------------------------------------------------
+
+_calibration_jobs: dict[str, dict] = {}
+
+
+class CalibrateResponse(BaseModel):
+    status: str
+    job_id: str
+    message: str
+
+
+class CalibrateStatus(BaseModel):
+    job_id: str
+    status: str
+    thresholds: Optional[dict] = None
+    error: Optional[str] = None
+    completed_at: Optional[str] = None
+
+
+def _best_f1_threshold(y_true, y_probs) -> float:
+    """Return the probability threshold that maximises F1 on the given data."""
+    import numpy as np
+    from sklearn.metrics import precision_recall_curve
+
+    precision, recall, thresholds = precision_recall_curve(y_true, y_probs)
+    if len(thresholds) == 0:
+        return 0.5
+    f1 = 2 * precision[:-1] * recall[:-1] / (precision[:-1] + recall[:-1] + 1e-8)
+    return float(thresholds[int(f1.argmax())])
+
+
+async def _run_calibration(job_id: str):
+    """Background calibration task: find optimal F1 thresholds on val data and persist them."""
+    _calibration_jobs[job_id]["status"] = "running"
+    try:
+        import numpy as np
+        import pandas as pd
+        import torch
+        from torch.utils.data import TensorDataset, DataLoader
+
+        from app.features.feature_builder import ALL_FEATURES
+        from app.features.sequence_builder import build_training_sequences
+        from app.models.model_registry import model_registry, CATEGORIES
+        from app.config import settings
+
+        parquet_path = Path("training_data") / "training_dataset.parquet"
+        if not parquet_path.exists():
+            raise RuntimeError("Training dataset not found at training_data/training_dataset.parquet")
+
+        dataset = pd.read_parquet(parquet_path)
+        if "date" in dataset.columns:
+            dataset = dataset.sort_values("date").reset_index(drop=True)
+
+        feature_cols = [c for c in ALL_FEATURES if c in dataset.columns]
+        normalizer = model_registry.get_normalizer()
+        model_dir = Path(settings.model_dir)
+        thresholds: dict[str, dict] = {}
+
+        for category in CATEGORIES:
+            label_col = f"label_{category.lower()}"
+            if label_col not in dataset.columns or category not in model_registry.xgboost_models:
+                logger.warning(f"Skipping calibration for {category}: missing labels or model")
+                continue
+
+            valid_mask = dataset[label_col].notna()
+            cat_data = dataset[valid_mask].reset_index(drop=True)
+            split_idx = int(len(cat_data) * 0.8)
+            val_data = cat_data.iloc[split_idx:].reset_index(drop=True)
+
+            if len(val_data) < 100:
+                logger.warning(f"Too few val samples for {category}, skipping")
+                continue
+
+            X_val = normalizer.transform(val_data[feature_cols])
+            if not isinstance(X_val, pd.DataFrame):
+                X_val = pd.DataFrame(X_val, columns=feature_cols)
+            y_val = val_data[label_col].astype(int).values
+
+            # XGBoost threshold
+            xgb_model = model_registry.xgboost_models[category]
+            xgb_probs = xgb_model.predict_proba(X_val)[:, 1]
+            xgb_thresh = _best_f1_threshold(y_val, xgb_probs)
+
+            # LSTM + ensemble threshold
+            lstm_thresh = None
+            ensemble_thresh = None
+            if category in model_registry.lstm_models:
+                X_seq, y_cls, _ = build_training_sequences(
+                    dataset=val_data,
+                    feature_cols=feature_cols,
+                    label_col=label_col,
+                )
+                if len(X_seq) >= 50:
+                    lstm_model = model_registry.lstm_models[category]
+                    lstm_model.eval()
+                    device = next(lstm_model.parameters()).device
+
+                    X_np = np.asarray(X_seq, dtype=np.float32)
+                    ds = TensorDataset(torch.from_numpy(X_np))
+                    dl = DataLoader(ds, batch_size=512, shuffle=False, num_workers=0)
+                    preds_list = []
+                    with torch.no_grad():
+                        for (Xb,) in dl:
+                            Xb = Xb.to(device)
+                            prob, _ = lstm_model(Xb)
+                            preds_list.append(prob.view(-1).cpu().numpy())
+                    lstm_probs = np.concatenate(preds_list)
+                    y_seq = y_cls[:len(lstm_probs)]
+                    lstm_thresh = _best_f1_threshold(y_seq, lstm_probs)
+
+                    # Ensemble threshold (weighted average of XGB + LSTM probs)
+                    w = model_registry.ensemble_weights.get(category, {"xgboost": 0.5, "lstm": 0.5})
+                    min_len = min(len(xgb_probs), len(lstm_probs))
+                    ens_probs = (
+                        w["xgboost"] * xgb_probs[-min_len:]
+                        + w["lstm"] * lstm_probs[-min_len:]
+                    )
+                    y_ens = y_val[-min_len:]
+                    ensemble_thresh = _best_f1_threshold(y_ens, ens_probs)
+
+            thresholds[category] = {
+                "xgboost": round(float(xgb_thresh), 4),
+                "lstm": round(float(lstm_thresh), 4) if lstm_thresh is not None else 0.5,
+                "ensemble": round(float(ensemble_thresh), 4) if ensemble_thresh is not None else round(float(xgb_thresh), 4),
+            }
+            logger.info(
+                f"Calibrated {category}: "
+                f"xgb={thresholds[category]['xgboost']:.3f}  "
+                f"lstm={thresholds[category]['lstm']:.3f}  "
+                f"ensemble={thresholds[category]['ensemble']:.3f}"
+            )
+
+        # Persist calibration thresholds
+        calibration_path = model_dir / "calibration.json"
+        with open(calibration_path, "w") as f:
+            json.dump(
+                {"calibrated_at": datetime.utcnow().isoformat(), "thresholds": thresholds},
+                f,
+                indent=2,
+            )
+
+        # Hot-reload into the running registry
+        model_registry.calibration_thresholds = thresholds
+
+        _calibration_jobs[job_id]["status"] = "completed"
+        _calibration_jobs[job_id]["thresholds"] = thresholds
+        logger.info(f"Calibration complete: {list(thresholds.keys())}")
+
+    except Exception as e:
+        logger.error(f"Calibration failed: {e}", exc_info=True)
+        _calibration_jobs[job_id]["status"] = "failed"
+        _calibration_jobs[job_id]["error"] = str(e)
+
+    _calibration_jobs[job_id]["completed_at"] = datetime.utcnow().isoformat()
+
+
+@router.post("/calibrate", response_model=CalibrateResponse)
+async def calibrate_thresholds(background_tasks: BackgroundTasks):
+    """Sweep decision thresholds on validation data to maximise F1 per model/category."""
+    job_id = str(uuid.uuid4())[:8]
+    _calibration_jobs[job_id] = {"status": "pending"}
+    background_tasks.add_task(_run_calibration, job_id)
+    return CalibrateResponse(
+        status="started",
+        job_id=job_id,
+        message="Threshold calibration running in background",
+    )
+
+
+@router.get("/calibrate/{job_id}/status", response_model=CalibrateStatus)
+async def get_calibration_status(job_id: str):
+    """Check the status of a calibration job."""
+    if job_id not in _calibration_jobs:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    job = _calibration_jobs[job_id]
+    return CalibrateStatus(
+        job_id=job_id,
+        status=job.get("status", "unknown"),
+        thresholds=job.get("thresholds"),
+        error=job.get("error"),
+        completed_at=job.get("completed_at"),
     )

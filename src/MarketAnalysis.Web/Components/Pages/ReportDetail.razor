@@ -38,8 +38,9 @@ else if (_report is not null)
 
     <MudDataGrid Items="@_report.Entries" Dense="true" Hover="true" Striped="true"
                  RowClick="@((DataGridRowClickEventArgs<ScanReportEntryDto> args) => Nav.NavigateTo($"/stock/{args.Item.Ticker}"))"
-                 RowStyle="cursor:pointer;">
+                 RowStyle="cursor:pointer;" ShowDetailsButton="true">
         <Columns>
+            <HierarchyColumn T="ScanReportEntryDto" />
             <PropertyColumn Property="x => x.Rank" Title="#" />
             <PropertyColumn Property="x => x.Ticker" Title="Ticker">
                 <CellTemplate>
@@ -77,6 +78,18 @@ else if (_report is not null)
                 </CellTemplate>
             </PropertyColumn>
         </Columns>
+        <ChildRowContent>
+            <MudCard Elevation="0" Class="ma-2">
+                <MudCardHeader>
+                    <CardHeaderContent>
+                        <MudText Typo="Typo.subtitle1">Logic & Analysis Breakdown</MudText>
+                    </CardHeaderContent>
+                </MudCardHeader>
+                <MudCardContent>
+                    <MarketAnalysis.Web.Components.Shared.AnalysisReasoning ReasoningDict="@context.Item.Reasoning" />
+                </MudCardContent>
+            </MudCard>
+        </ChildRowContent>
     </MudDataGrid>
 }
 else
@@ -138,7 +151,9 @@ else
                     var entries = full.Entries.OrderBy(e => e.Rank).Select(e => new ScanReportEntryDto(
                         e.Id, e.Stock.Ticker, e.Stock.Name, e.CurrentPrice,
                         e.CompositeScore, e.TechnicalScore, e.FundamentalScore, e.SentimentScore,
-                        e.Rank, e.PatternDetected, e.Direction, null)).ToList();
+                        e.Rank, e.PatternDetected, e.Direction, 
+                        string.IsNullOrEmpty(e.Reasoning) ? new() : 
+                        System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(e.Reasoning))).ToList();
 
                     _report = new ScanReportDto(full.Id, full.ReportDate, full.Category,
                         full.GeneratedAtUtc, full.TotalStocksScanned, full.TotalMatches, entries);

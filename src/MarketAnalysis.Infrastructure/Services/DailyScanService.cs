@@ -87,7 +87,7 @@ public class DailyScanService : IDailyScanService
             }
 
             // Update progress with filtered ticker count
-            _progress.Start(tickers.Count, totalSteps: 6);
+            _progress.UpdateTotalTickers(tickers.Count);
 
             // Step 2: Ingest price data
             cancellationToken.ThrowIfCancellationRequested();

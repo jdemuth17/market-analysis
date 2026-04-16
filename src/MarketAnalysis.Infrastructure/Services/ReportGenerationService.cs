@@ -136,7 +136,7 @@ public class ReportGenerationService : IReportGenerationService
                 if (mlPredictions != null &&
                     mlPredictions.TryGetValue((stock.Ticker, category), out var mlPred))
                 {
-                    if (mlPred.EnsembleScore < 30) continue; // Minimum threshold
+                    if (mlPred.EnsembleScore < (mlPred.OptimalThreshold ?? 30)) continue; // Minimum threshold
 
                     var mlReasoning = new Dictionary<string, object>
                     {

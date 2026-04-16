@@ -66,6 +66,9 @@ public interface IWatchListRepository : IRepository<WatchList>
 {
     Task<WatchList?> GetWithItemsAsync(int watchListId);
     Task<List<WatchList>> GetAllWithItemCountAsync();
+    Task AddItemAsync(int watchListId, int stockId);
+    Task RemoveItemAsync(int watchListId, int stockId);
+    Task<bool> IsStockInWatchListAsync(int watchListId, int stockId);
 }
 
 public interface IUserScanConfigRepository : IRepository<UserScanConfig>

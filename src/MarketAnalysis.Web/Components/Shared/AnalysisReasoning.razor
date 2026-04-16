@@ -1,0 +1,107 @@
+@using System.Text.Json
+@inject ISnackbar Snackbar
+
+<MudPaper Elevation="0" Class="pa-4 bg-gray-50 dark:bg-gray-800">
+    @if (ReasoningDict == null || !ReasoningDict.Any())
+    {
+        <MudText Typo="Typo.body2" Color="Color.Secondary">No detailed reasoning available.</MudText>
+    }
+    else
+    {
+        <MudGrid>
+            <!-- Scoring Method -->
+            <MudItem xs="12">
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                    Analysis Method: <strong>@GetVal("scoringMethod")</strong>
+                </MudAlert>
+            </MudItem>
+
+            <!-- ML Drivers if applicable -->
+            @if (ReasoningDict.ContainsKey("topDrivers"))
+            {
+                <MudItem xs="12">
+                    <MudText Typo="Typo.subtitle2" Class="mb-2">Key ML Drivers</MudText>
+                    @foreach (var driver in GetList("topDrivers"))
+                    {
+                        <MudText Typo="Typo.body2" Class="ml-4">• @driver</MudText>
+                    }
+                </MudItem>
+            }
+
+            <!-- Legacy Details if applicable -->
+            @if (ReasoningDict.ContainsKey("details"))
+            {
+                <MudItem xs="12">
+                    <MudText Typo="Typo.subtitle2" Class="mb-2">Analysis Breakdown</MudText>
+                    <MudGrid>
+                        @foreach (var detail in GetDict("details"))
+                        {
+                            <MudItem xs="6" md="4">
+                                <MudText Typo="Typo.caption">@detail.Key</MudText>
+                                <MudText Typo="Typo.body2"><strong>@detail.Value</strong></MudText>
+                            </MudItem>
+                        }
+                    </MudGrid>
+                </MudItem>
+            }
+
+            <!-- Scores -->
+            <MudItem xs="12" md="4">
+                <MudText Typo="Typo.caption">Technical Evidence</MudText>
+                <MudProgressLinear Color="Color.Info" Value="@GetDouble("technicalScore")" Class="my-1" />
+                <MudText Typo="Typo.body2">@GetDouble("technicalScore").ToString("F1")/100</MudText>
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudText Typo="Typo.caption">Fundamental Foundation</MudText>
+                <MudProgressLinear Color="Color.Primary" Value="@GetDouble("fundamentalScore")" Class="my-1" />
+                <MudText Typo="Typo.body2">@GetDouble("fundamentalScore").ToString("F1")/100</MudText>
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudText Typo="Typo.caption">Sentiment/Social Context</MudText>
+                <MudProgressLinear Color="Color.Secondary" Value="@GetDouble("sentimentScore")" Class="my-1" />
+                <MudText Typo="Typo.body2">@GetDouble("sentimentScore").ToString("F1")/100</MudText>
+            </MudItem>
+        </MudGrid>
+    }
+</MudPaper>
+
+@code {
+    [Parameter] public Dictionary<string, object>? ReasoningDict { get; set; }
+
+    private string GetVal(string key) => ReasoningDict?.GetValueOrDefault(key)?.ToString() ?? "N/A";
+
+    private double GetDouble(string key)
+    {
+        if (ReasoningDict?.TryGetValue(key, out var val) == true)
+        {
+            if (val is JsonElement elem && elem.ValueKind == JsonValueKind.Number)
+                return elem.GetDouble();
+            if (val is double d) return d;
+            if (val is float f) return f;
+            if (val is int i) return i;
+        }
+        return 0;
+    }
+
+    private List<string> GetList(string key)
+    {
+        if (ReasoningDict?.TryGetValue(key, out var val) == true)
+        {
+            if (val is JsonElement elem && elem.ValueKind == JsonValueKind.Array)
+                return elem.EnumerateArray().Select(x => x.GetString() ?? "").ToList();
+            if (val is List<string> list) return list;
+        }
+        return new List<string>();
+    }
+
+    private Dictionary<string, string> GetDict(string key)
+    {
+        if (ReasoningDict?.TryGetValue(key, out var val) == true)
+        {
+            if (val is JsonElement elem && elem.ValueKind == JsonValueKind.Object)
+                return elem.EnumerateObject().ToDictionary(x => x.Name, x => x.Value.ToString());
+            if (val is Dictionary<string, string> dict) return dict;
+        }
+        return new Dictionary<string, string>();
+    }
+}

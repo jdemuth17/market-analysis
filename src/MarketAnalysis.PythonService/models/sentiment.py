@@ -51,6 +51,7 @@ class CollectSentimentResponse(BaseModel):
 
 class AnalyzeSentimentRequest(BaseModel):
     texts: list[str]
+    low_resource_mode: bool = False
 
 
 class AnalyzeSentimentResponse(BaseModel):
@@ -61,6 +62,7 @@ class FullSentimentRequest(BaseModel):
     tickers: list[str]
     sources: list[SentimentSource]
     max_items_per_source: int = 30
+    low_resource_mode: bool = False
 
 
 class FullSentimentResponse(BaseModel):

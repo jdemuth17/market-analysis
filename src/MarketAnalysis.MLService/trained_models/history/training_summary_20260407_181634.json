@@ -1,0 +1,54 @@
+{
+  "trained_at": "2026-04-07T18:16:34.298284",
+  "dataset_rows": 1295224,
+  "feature_count": 46,
+  "xgboost_categories": [],
+  "lstm_categories": [
+    "ShortTermHold",
+    "LongTermHold"
+  ],
+  "ensemble_categories": [
+    "ShortTermHold",
+    "LongTermHold"
+  ],
+  "metrics": {
+    "lstm_shorttermhold": {
+      "category": "ShortTermHold",
+      "auc": 0.7027537983215819,
+      "precision": 0.6494382022471911,
+      "recall": 0.008329730508718835,
+      "f1": 0.01644849174729653,
+      "val_loss": 0.414,
+      "best_epoch": 2,
+      "total_epochs": 12,
+      "train_samples": 974979,
+      "val_samples": 243745,
+      "training_time_sec": 3992.2,
+      "device": "cuda"
+    },
+    "lstm_longtermhold": {
+      "category": "LongTermHold",
+      "auc": 0.6832180764399021,
+      "precision": 0.6626984126984127,
+      "recall": 0.005140675983500585,
+      "f1": 0.010202211497342538,
+      "val_loss": 0.4915,
+      "best_epoch": 1,
+      "total_epochs": 11,
+      "train_samples": 934179,
+      "val_samples": 233545,
+      "training_time_sec": 5045.4,
+      "device": "cuda"
+    },
+    "ensemble": {
+      "ShortTermHold": {
+        "xgboost": 0.5,
+        "lstm": 0.5
+      },
+      "LongTermHold": {
+        "xgboost": 0.5,
+        "lstm": 0.5
+      }
+    }
+  }
+}

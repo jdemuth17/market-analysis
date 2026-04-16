@@ -86,6 +86,12 @@ public class UserScanConfig
     /// </summary>
     public bool UseMlScoring { get; set; } = false;
 
+    /// <summary>
+    /// When true, uses lightweight models (e.g. VADER instead of FinBERT) 
+    /// to reduce memory and CPU usage on lower-spec hardware.
+    /// </summary>
+    public bool LowResourceMode { get; set; } = false;
+
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 }

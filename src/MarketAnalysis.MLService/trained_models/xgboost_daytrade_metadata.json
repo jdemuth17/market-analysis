@@ -2,70 +2,82 @@
   "category": "DayTrade",
   "metrics": {
     "category": "DayTrade",
-    "auc": 0.7180227588143183,
-    "precision": 0.26393422893505636,
-    "recall": 0.7882157378080283,
-    "f1": 0.3954514462169579,
-    "brier_score": 0.21992400288581848,
-    "log_loss": 0.608291313802319,
-    "cv_auc_mean": 0.7151126345295987,
-    "cv_auc_std": 0.007664367614427825,
+    "auc": 0.7181174355333174,
+    "precision": 0.2634729639394008,
+    "recall": 0.788606371259639,
+    "f1": 0.3949824905133489,
+    "brier_score": 0.219729483127594,
+    "log_loss": 0.6079986651524006,
+    "cv_auc_mean": 0.7149638240529785,
+    "cv_auc_std": 0.007631147375371294,
     "cv_folds": 5,
-    "train_samples": 1033902,
-    "val_samples": 258476,
-    "positive_rate_train": 0.17554661853831408,
-    "positive_rate_val": 0.1722287562481623,
+    "train_samples": 1034139,
+    "val_samples": 258535,
+    "positive_rate_train": 0.17559825129890663,
+    "positive_rate_val": 0.17205020596824414,
     "scale_pos_weight": 4.72,
-    "best_iteration": 174
+    "best_iteration": 127
   },
   "feature_importance": [
     {
       "feature": "atr_normalized",
-      "importance": 1843.8421630859375
+      "importance": 2418.259033203125
     },
     {
       "feature": "volume_ratio_20d",
-      "importance": 64.8968505859375
+      "importance": 76.46813201904297
     },
     {
       "feature": "obv_slope_5d",
-      "importance": 42.9234733581543
+      "importance": 48.40130615234375
     },
     {
       "feature": "sma50_sma200_ratio",
-      "importance": 41.5328369140625
+      "importance": 47.62166213989258
     },
     {
       "feature": "bollinger_pct_b",
-      "importance": 39.97843933105469
+      "importance": 47.003746032714844
     },
     {
       "feature": "stoch_k",
-      "importance": 33.97624969482422
+      "importance": 40.82421112060547
     },
     {
       "feature": "sma20_sma50_ratio",
-      "importance": 33.71779251098633
+      "importance": 38.63631057739258
+    },
+    {
+      "feature": "sector_momentum_20d",
+      "importance": 37.44650650024414
     },
     {
       "feature": "stoch_d",
-      "importance": 31.002044677734375
-    },
-    {
-      "feature": "macd_signal",
-      "importance": 29.7420597076416
+      "importance": 35.1381950378418
     },
     {
       "feature": "rsi_14",
-      "importance": 29.587024688720703
+      "importance": 34.876590728759766
+    },
+    {
+      "feature": "macd_signal",
+      "importance": 34.08962631225586
+    },
+    {
+      "feature": "sector_momentum_10d",
+      "importance": 32.84630584716797
     },
     {
       "feature": "macd_histogram",
-      "importance": 28.691612243652344
+      "importance": 31.59870147705078
+    },
+    {
+      "feature": "sector_momentum_5d",
+      "importance": 29.805618286132812
     },
     {
       "feature": "adx",
-      "importance": 25.75613784790039
+      "importance": 29.03826332092285
     }
   ],
   "feature_names": [
@@ -111,7 +123,10 @@
     "stocktwits_positive",
     "stocktwits_negative",
     "stocktwits_neutral",
-    "sentiment_sample_size"
+    "sentiment_sample_size",
+    "sector_momentum_5d",
+    "sector_momentum_10d",
+    "sector_momentum_20d"
   ],
   "config": {
     "n_estimators": 500,

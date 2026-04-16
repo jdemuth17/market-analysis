@@ -1,0 +1,18 @@
+{
+  "DayTrade": {
+    "xgboost": 0.5,
+    "lstm": 0.5
+  },
+  "SwingTrade": {
+    "xgboost": 0.5,
+    "lstm": 0.5
+  },
+  "ShortTermHold": {
+    "xgboost": 0.5,
+    "lstm": 0.5
+  },
+  "LongTermHold": {
+    "xgboost": 0.5,
+    "lstm": 0.5
+  }
+}

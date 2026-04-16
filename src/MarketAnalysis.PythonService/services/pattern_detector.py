@@ -7,6 +7,7 @@ Ascending/Descending/Symmetrical Triangle, Rising/Falling Wedge, Pennant, Cup an
 
 import numpy as np
 import pandas as pd
+import pandas_ta as ta
 from scipy.signal import argrelextrema
 import logging
 from datetime import date
@@ -43,6 +44,20 @@ class PatternDetector:
         self.volume = self.df["volume"].values.astype(float)
         self.dates = self.df.index.tolist()
         self.n = len(self.close)
+
+        # Compute ATR for relative tolerances
+        try:
+            atr_series = self.df.ta.atr(length=14)
+            if atr_series is not None:
+                self.atr = atr_series.fillna(method="bfill").values
+                self.current_atr = float(self.atr[-1]) if len(self.atr) > 0 else 0.0
+            else:
+                self.atr = np.zeros(self.n)
+                self.current_atr = 0.0
+        except Exception as e:
+            logger.warning(f"ATR calculation failed: {e}")
+            self.atr = np.zeros(self.n)
+            self.current_atr = 0.0
 
         # Identify pivots
         self._find_pivots()
@@ -106,41 +121,37 @@ class PatternDetector:
         if len(self.pivot_high_idx) < 2:
             return results
 
-        tolerance = 0.03  # 3% price tolerance between peaks
+        # ATR-based tolerance: allow peaks within 1.5 ATRs of each other
+        atr_tolerance = 1.5 * self.current_atr if self.current_atr > 0 else 0.03 * self.close[-1]
 
         for i in range(len(self.pivot_high_idx) - 1):
             for j in range(i + 1, len(self.pivot_high_idx)):
                 idx1, idx2 = self.pivot_high_idx[i], self.pivot_high_idx[j]
                 peak1, peak2 = self.high[idx1], self.high[idx2]
 
-                # Peaks should be at similar level
-                if abs(peak1 - peak2) / max(peak1, peak2) > tolerance:
+                if abs(peak1 - peak2) > atr_tolerance:
                     continue
 
-                # Must have some separation (at least 10 bars)
                 if idx2 - idx1 < 10:
                     continue
 
-                # Find the lowest trough between the two peaks
                 trough_region = self.low[idx1:idx2 + 1]
                 trough_idx_local = np.argmin(trough_region)
                 trough_idx = idx1 + trough_idx_local
                 neckline = self.low[trough_idx]
 
-                # Trough should be meaningfully lower than peaks (at least 2%)
                 avg_peak = (peak1 + peak2) / 2
-                if (avg_peak - neckline) / avg_peak < 0.02:
+                min_depth = self.current_atr if self.current_atr > 0 else 0.02 * avg_peak
+                if (avg_peak - neckline) < min_depth:
                     continue
 
-                # Check if price has broken below neckline after 2nd peak
                 remaining = self.close[idx2:]
                 status = PatternStatus.FORMING
                 if len(remaining) > 0 and np.any(remaining < neckline):
                     status = PatternStatus.CONFIRMED
 
-                # Confidence based on symmetry and depth
-                symmetry = 1 - abs(peak1 - peak2) / max(peak1, peak2) / tolerance
-                depth = min((avg_peak - neckline) / avg_peak / 0.10, 1.0)
+                symmetry = 1 - min(abs(peak1 - peak2) / atr_tolerance, 1.0)
+                depth = min((avg_peak - neckline) / (3 * min_depth), 1.0)
                 confidence = min(symmetry * 50 + depth * 50, 100)
 
                 target = neckline - (avg_peak - neckline)
@@ -155,7 +166,7 @@ class PatternDetector:
                     status=status,
                 ))
 
-        return results[:3]  # Return top 3 at most
+        return results[:3]
 
     # ---------- Double Bottom ----------
     def _detect_double_bottom(self) -> list[DetectedPattern]:
@@ -164,27 +175,27 @@ class PatternDetector:
         if len(self.pivot_low_idx) < 2:
             return results
 
-        tolerance = 0.03
+        atr_tolerance = 1.5 * self.current_atr if self.current_atr > 0 else 0.03 * self.close[-1]
 
         for i in range(len(self.pivot_low_idx) - 1):
             for j in range(i + 1, len(self.pivot_low_idx)):
                 idx1, idx2 = self.pivot_low_idx[i], self.pivot_low_idx[j]
                 trough1, trough2 = self.low[idx1], self.low[idx2]
 
-                if abs(trough1 - trough2) / max(trough1, trough2) > tolerance:
+                if abs(trough1 - trough2) > atr_tolerance:
                     continue
 
                 if idx2 - idx1 < 10:
                     continue
 
-                # Find highest peak between troughs
                 peak_region = self.high[idx1:idx2 + 1]
                 peak_idx_local = np.argmax(peak_region)
                 peak_idx = idx1 + peak_idx_local
                 neckline = self.high[peak_idx]
 
                 avg_trough = (trough1 + trough2) / 2
-                if (neckline - avg_trough) / neckline < 0.02:
+                min_depth = self.current_atr if self.current_atr > 0 else 0.02 * neckline
+                if (neckline - avg_trough) < min_depth:
                     continue
 
                 remaining = self.close[idx2:]
@@ -192,8 +203,8 @@ class PatternDetector:
                 if len(remaining) > 0 and np.any(remaining > neckline):
                     status = PatternStatus.CONFIRMED
 
-                symmetry = 1 - abs(trough1 - trough2) / max(trough1, trough2) / tolerance
-                depth = min((neckline - avg_trough) / neckline / 0.10, 1.0)
+                symmetry = 1 - min(abs(trough1 - trough2) / atr_tolerance, 1.0)
+                depth = min((neckline - avg_trough) / (3 * min_depth), 1.0)
                 confidence = min(symmetry * 50 + depth * 50, 100)
 
                 target = neckline + (neckline - avg_trough)

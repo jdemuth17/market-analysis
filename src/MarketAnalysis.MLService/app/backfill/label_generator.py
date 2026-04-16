@@ -19,7 +19,7 @@ from app.db.models import Stock, PriceHistory, TechnicalSignal, FundamentalSnaps
 from app.db.queries import get_active_stocks
 from app.features.feature_builder import (
     FeatureBuilder, ALL_FEATURES, TECHNICAL_FEATURES,
-    FUNDAMENTAL_FEATURES, SENTIMENT_FEATURES,
+    FUNDAMENTAL_FEATURES, SENTIMENT_FEATURES, SECTOR_FEATURES,
 )
 
 logger = logging.getLogger(__name__)
@@ -56,6 +56,85 @@ def _compute_forward_returns(prices_df: pd.DataFrame) -> pd.DataFrame:
         df.loc[df[f"return_{horizon}d"].isna(), f"label_{category}"] = np.nan
 
     return df
+
+
+async def _precompute_sector_momentum(
+    session,
+    stocks: list,
+) -> dict:
+    """
+    Precompute sector momentum for all stocks before the per-stock loop.
+
+    Returns: {sector: {ticker: pd.DataFrame(index=date, columns=[sector_momentum_5d/10d/20d])}}
+    Each ticker's DataFrame uses only peer prices (self excluded) to avoid circular dependency.
+    Only sectors with at least 3 total stocks produce entries; others are absent (caller falls back to 0.0).
+    """
+    logger.info("Precomputing sector momentum for all stocks")
+
+    stock_map = {s.Id: (s.Ticker, s.Sector) for s in stocks}
+    stock_ids = list(stock_map.keys())
+
+    # Single batch query for all prices (full history for SMA200 depth)
+    result = await session.execute(
+        select(PriceHistory.StockId, PriceHistory.Date, PriceHistory.Close)
+        .where(PriceHistory.StockId.in_(stock_ids))
+        .order_by(PriceHistory.StockId, PriceHistory.Date)
+    )
+    all_prices = result.all()
+    logger.info(f"Loaded {len(all_prices)} price rows for sector momentum precomputation")
+
+    # Build flat records with sector annotation
+    price_records = []
+    for stock_id, date_val, close_val in all_prices:
+        ticker, sector = stock_map.get(stock_id, (None, None))
+        if ticker and sector:
+            price_records.append({
+                "date": date_val,
+                "ticker": ticker,
+                "sector": sector,
+                "close": float(close_val),
+            })
+
+    if not price_records:
+        return {}
+
+    all_df = pd.DataFrame(price_records)
+    sectors = all_df["sector"].dropna().unique()
+    sector_momentum_map: dict[str, dict[str, pd.DataFrame]] = {}
+
+    for sector in sectors:
+        sector_df = all_df[all_df["sector"] == sector]
+        tickers = sector_df["ticker"].unique()
+
+        if len(tickers) < 3:
+            # Too few tickers in sector to produce a valid average
+            continue
+
+        # Pivot: rows=date, cols=ticker, values=close
+        pivot = sector_df.pivot(index="date", columns="ticker", values="close").sort_index()
+
+        sector_momentum_map[sector] = {}
+        for ticker in tickers:
+            peer_cols = [t for t in tickers if t != ticker]
+            if len(peer_cols) < 3:
+                # After self-exclusion fewer than 3 peers remain → all zeros
+                sector_momentum_map[sector][ticker] = pd.DataFrame(
+                    {"sector_momentum_5d": 0.0, "sector_momentum_10d": 0.0, "sector_momentum_20d": 0.0},
+                    index=pivot.index,
+                )
+            else:
+                peers = pivot[peer_cols]
+                ret_5d  = (peers / peers.shift(5)  - 1).mean(axis=1).fillna(0.0)
+                ret_10d = (peers / peers.shift(10) - 1).mean(axis=1).fillna(0.0)
+                ret_20d = (peers / peers.shift(20) - 1).mean(axis=1).fillna(0.0)
+                sector_momentum_map[sector][ticker] = pd.DataFrame({
+                    "sector_momentum_5d":  ret_5d,
+                    "sector_momentum_10d": ret_10d,
+                    "sector_momentum_20d": ret_20d,
+                })
+
+    logger.info(f"Sector momentum precomputed for {len(sector_momentum_map)} sectors")
+    return sector_momentum_map
 
 
 def _compute_vectorized_technical_features(prices_df: pd.DataFrame) -> pd.DataFrame:
@@ -142,6 +221,9 @@ def _compute_vectorized_technical_features(prices_df: pd.DataFrame) -> pd.DataFr
 async def _build_dataset_for_stock(
     stock_id: int,
     ticker: str,
+    sentiment_records: list,
+    sector: str | None,
+    sector_momentum_map: dict,
 ) -> pd.DataFrame | None:
     """Build complete feature + label DataFrame for one stock."""
     async with async_session() as session:
@@ -261,14 +343,46 @@ async def _build_dataset_for_stock(
                 df.at[idx, "growth_score"] = (float(f.GrowthScore) / 100.0) if f.GrowthScore else 0.5
                 df.at[idx, "safety_score"] = (float(f.SafetyScore) / 100.0) if f.SafetyScore else 0.5
 
-    # Add sentiment features (default neutral 0.5)
-    for col in SENTIMENT_FEATURES:
-        if "sample_size" in col:
-            df[col] = 0.0
-        else:
-            df[col] = 0.5
+    # Add sentiment features — backfill from pre-fetched records (90-day forward-fill)
+    # Build lookup: date -> list of SentimentScore records on that date
+    sentiment_by_date: dict = {}
+    for s in sentiment_records:
+        sentiment_by_date.setdefault(s.AnalysisDate, []).append(s)
 
-    # Sentiment is not available for historical backfill — stays at neutral defaults
+    # Initialize all sentiment columns with neutral defaults
+    for col in SENTIMENT_FEATURES:
+        df[col] = 0.0 if "sample_size" in col else 0.5
+
+    sorted_sentiment_dates = sorted(sentiment_by_date.keys(), reverse=True)
+    for idx, row in df.iterrows():
+        row_date = row["date"]
+        lookback_start = row_date - timedelta(days=90)
+        # Find most recent sentiment date within the 90-day window
+        recent_records = []
+        for sd in sorted_sentiment_dates:
+            if sd > row_date:
+                continue
+            if sd < lookback_start:
+                break
+            recent_records = sentiment_by_date[sd]
+            break  # Take only the most recent date within window
+
+        if recent_records:
+            sent_features = FeatureBuilder._compute_sentiment_from_records(recent_records)
+            for col, val in sent_features.items():
+                df.at[idx, col] = val
+
+    # Add sector momentum features from precomputed map
+    if sector and sector in sector_momentum_map and ticker in sector_momentum_map[sector]:
+        momentum_df = sector_momentum_map[sector][ticker]
+        df = df.merge(momentum_df, left_on="date", right_index=True, how="left")
+        df["sector_momentum_5d"]  = df["sector_momentum_5d"].fillna(0.0)
+        df["sector_momentum_10d"] = df["sector_momentum_10d"].fillna(0.0)
+        df["sector_momentum_20d"] = df["sector_momentum_20d"].fillna(0.0)
+    else:
+        df["sector_momentum_5d"]  = 0.0
+        df["sector_momentum_10d"] = 0.0
+        df["sector_momentum_20d"] = 0.0
 
     # Add metadata
     df["stock_id"] = stock_id
@@ -306,6 +420,23 @@ async def run_label_generation():
     async with async_session() as session:
         stocks = await get_active_stocks(session)
 
+        # Batch-load all sentiment records for all active stocks in one query
+        stock_ids = [s.Id for s in stocks]
+        logger.info(f"Batch-loading sentiment records for {len(stock_ids)} stocks")
+        sent_result = await session.execute(
+            select(SentimentScore)
+            .where(SentimentScore.StockId.in_(stock_ids))
+            .order_by(SentimentScore.StockId, SentimentScore.AnalysisDate)
+        )
+        all_sentiment_records = sent_result.scalars().all()
+        sentiment_map: dict[int, list] = {sid: [] for sid in stock_ids}
+        for rec in all_sentiment_records:
+            sentiment_map[rec.StockId].append(rec)
+        logger.info(f"Loaded {len(all_sentiment_records)} sentiment records")
+
+        # Precompute sector momentum for all stocks before per-stock loop
+        sector_momentum_map = await _precompute_sector_momentum(session, stocks)
+
     logger.info(f"Building training data for {len(stocks)} stocks")
 
     all_frames = []
@@ -314,7 +445,13 @@ async def run_label_generation():
 
     for idx, stock in enumerate(stocks):
         try:
-            df = await _build_dataset_for_stock(stock.Id, stock.Ticker)
+            df = await _build_dataset_for_stock(
+                stock.Id,
+                stock.Ticker,
+                sentiment_map[stock.Id],
+                stock.Sector,
+                sector_momentum_map,
+            )
             if df is not None and len(df) > 0:
                 all_frames.append(df)
                 processed += 1

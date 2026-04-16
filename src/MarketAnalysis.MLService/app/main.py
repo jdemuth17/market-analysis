@@ -30,6 +30,18 @@ async def lifespan(app: FastAPI):
     logger.info("MarketAnalysis.MLService starting up")
     logger.info(f"Database: {settings.database_url.split('@')[1] if '@' in settings.database_url else 'configured'}")
     logger.info(f"Model directory: {settings.model_dir}")
+    # Log key ML settings for debug
+    try:
+        logger.info(
+            "LSTM settings: batch=%s, seq_len=%s, hidden1=%s, hidden2=%s",
+            settings.lstm_batch_size,
+            settings.lstm_sequence_length,
+            settings.lstm_hidden_size_1,
+            settings.lstm_hidden_size_2,
+        )
+        logger.info("PYTORCH_ALLOC_CONF=%s", getattr(settings, "pytorch_alloc_conf", None))
+    except Exception:
+        logger.exception("Failed to log ML settings")
 
     # Load trained models if they exist
     from app.models.model_registry import model_registry

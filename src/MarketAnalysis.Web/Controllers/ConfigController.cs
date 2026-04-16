@@ -85,5 +85,7 @@ public class ConfigController : ControllerBase
         c.TechnicalWeight, c.FundamentalWeight, c.SentimentWeight,
         c.EnabledCategories.ToList(),
         c.EnabledSentimentSources.ToList(),
-        c.EnabledIndicators.ToList());
+        c.EnabledIndicators.ToList(),
+        c.UseMlScoring,
+        c.LowResourceMode);
 }

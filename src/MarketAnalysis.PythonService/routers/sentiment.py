@@ -97,12 +97,12 @@ async def collect_sentiment_texts(request: CollectSentimentRequest):
 
 @router.post("/analyze", response_model=AnalyzeSentimentResponse)
 async def analyze_texts(request: AnalyzeSentimentRequest):
-    """Run FinBERT sentiment analysis on provided texts."""
+    """Run sentiment analysis on provided texts."""
     analyzer = SentimentAnalyzer.get_instance()
 
     results = await asyncio.get_event_loop().run_in_executor(
         None,
-        lambda: analyzer.analyze_texts(request.texts),
+        lambda: analyzer.analyze_texts(request.texts, use_vader=request.low_resource_mode),
     )
 
     return AnalyzeSentimentResponse(results=results)
@@ -110,10 +110,10 @@ async def analyze_texts(request: AnalyzeSentimentRequest):
 
 @router.post("/full-pipeline", response_model=FullSentimentResponse)
 async def full_sentiment_pipeline(request: FullSentimentRequest):
-    """Two-phase pipeline: parallel text collection, then single batched GPU inference.
+    """Two-phase pipeline: parallel text collection, then single batched inference.
 
-    Phase 1 collects texts from all tickers concurrently (I/O-bound scrapers).
-    Phase 2 runs one FinBERT inference pass over all collected texts (GPU-optimized).
+    Phase 1 collects texts from all tickers concurrently.
+    Phase 2 runs one inference pass (FinBERT or VADER) over all collected texts.
     Results are regrouped by (ticker, source) for the response.
     """
     analyzer = SentimentAnalyzer.get_instance()
@@ -140,15 +140,15 @@ async def full_sentiment_pipeline(request: FullSentimentRequest):
             data=[], total_tickers=len(request.tickers), total_texts_analyzed=0
         )
 
-    # --- Phase 2: Single batched FinBERT inference over all texts ---
+    # --- Phase 2: Single batched inference over all texts ---
     all_text_strings = [item[2] for item in indexed_items]
     logger.info(
-        f"Phase 2: Running FinBERT on {len(all_text_strings)} texts "
+        f"Phase 2: Running analysis ({'VADER' if request.low_resource_mode else 'FinBERT'}) on {len(all_text_strings)} texts "
         f"(device={analyzer.device}, batch_size={analyzer.batch_size})"
     )
     all_results = await loop.run_in_executor(
         None,
-        lambda: analyzer.analyze_texts(all_text_strings),
+        lambda: analyzer.analyze_texts(all_text_strings, use_vader=request.low_resource_mode),
     )
 
     # --- Regroup results by (ticker, source) ---

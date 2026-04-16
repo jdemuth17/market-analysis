@@ -144,3 +144,109 @@ async def get_price_date_range(
     )
     row = result.one()
     return row[0], row[1]
+
+
+# --- Batch Queries for ML Scoring ---
+
+async def get_batch_price_history(
+    session: AsyncSession,
+    stock_ids: list[int],
+    start_date: date,
+    end_date: date,
+) -> dict[int, list[PriceHistory]]:
+    """Fetch price history for multiple stocks in one query."""
+    query = select(PriceHistory).where(
+        and_(
+            PriceHistory.StockId.in_(stock_ids),
+            PriceHistory.Date >= start_date,
+            PriceHistory.Date <= end_date,
+        )
+    ).order_by(PriceHistory.StockId, PriceHistory.Date.desc())
+    
+    result = await session.execute(query)
+    rows = list(result.scalars().all())
+    
+    mapping: dict[int, list[PriceHistory]] = {sid: [] for sid in stock_ids}
+    for r in rows:
+        mapping[r.StockId].append(r)
+    return mapping
+
+
+async def get_batch_technical_signals(
+    session: AsyncSession,
+    stock_ids: list[int],
+    since_date: date,
+) -> dict[int, list[TechnicalSignal]]:
+    """Fetch technical signals for multiple stocks in one query."""
+    query = select(TechnicalSignal).where(
+        and_(
+            TechnicalSignal.StockId.in_(stock_ids),
+            TechnicalSignal.DetectedDate >= since_date,
+        )
+    ).order_by(TechnicalSignal.StockId, TechnicalSignal.DetectedDate.desc())
+    
+    result = await session.execute(query)
+    rows = list(result.scalars().all())
+    
+    mapping: dict[int, list[TechnicalSignal]] = {sid: [] for sid in stock_ids}
+    for r in rows:
+        mapping[r.StockId].append(r)
+    return mapping
+
+
+async def get_batch_latest_fundamentals(
+    session: AsyncSession,
+    stock_ids: list[int],
+    as_of_date: date,
+) -> dict[int, Optional[FundamentalSnapshot]]:
+    """Fetch the single most recent fundamental snapshot for multiple stocks."""
+    # Use a subquery to find the max date per stock_id
+    subq = select(
+        FundamentalSnapshot.StockId,
+        func.max(FundamentalSnapshot.SnapshotDate).label("max_date")
+    ).where(
+        and_(
+            FundamentalSnapshot.StockId.in_(stock_ids),
+            FundamentalSnapshot.SnapshotDate <= as_of_date,
+        )
+    ).group_by(FundamentalSnapshot.StockId).subquery()
+
+    query = select(FundamentalSnapshot).join(
+        subq,
+        and_(
+            FundamentalSnapshot.StockId == subq.c.StockId,
+            FundamentalSnapshot.SnapshotDate == subq.c.max_date
+        )
+    )
+    
+    result = await session.execute(query)
+    rows = list(result.scalars().all())
+    
+    mapping: dict[int, Optional[FundamentalSnapshot]] = {sid: None for sid in stock_ids}
+    for r in rows:
+        mapping[r.StockId] = r
+    return mapping
+
+
+async def get_batch_latest_sentiment(
+    session: AsyncSession,
+    stock_ids: list[int],
+    as_of_date: date,
+) -> dict[int, list[SentimentScore]]:
+    """Fetch recent sentiment scores for multiple stocks in one query."""
+    since = as_of_date - timedelta(days=7)
+    query = select(SentimentScore).where(
+        and_(
+            SentimentScore.StockId.in_(stock_ids),
+            SentimentScore.AnalysisDate >= since,
+            SentimentScore.AnalysisDate <= as_of_date,
+        )
+    ).order_by(SentimentScore.StockId, SentimentScore.AnalysisDate.desc())
+    
+    result = await session.execute(query)
+    rows = list(result.scalars().all())
+    
+    mapping: dict[int, list[SentimentScore]] = {sid: [] for sid in stock_ids}
+    for r in rows:
+        mapping[r.StockId].append(r)
+    return mapping

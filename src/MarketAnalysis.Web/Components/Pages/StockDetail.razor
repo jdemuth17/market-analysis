@@ -6,12 +6,26 @@
 @inject ITechnicalSignalRepository TechRepo
 @inject IFundamentalRepository FundRepo
 @inject ISentimentRepository SentRepo
+@inject IScanReportRepository ReportRepo
+@inject IPythonServiceClient PythonClient
 @inject ISnackbar Snackbar
+
+@inject IWatchListRepository WatchRepo
 
 <PageTitle>@Ticker - Market Analysis</PageTitle>
 
 <MudBreadcrumbs Items="_breadcrumbs" Class="mb-2" />
-<MudText Typo="Typo.h4" Class="mb-4">@_detail?.Name (@Ticker)</MudText>
+<div class="d-flex align-center justify-space-between mb-4">
+    <MudText Typo="Typo.h4">@_detail?.Name (@Ticker)</MudText>
+    <MudMenu Icon="@Icons.Material.Filled.PlaylistAdd" Label="Add to Watchlist" Variant="Variant.Filled" Color="MudBlazor.Color.Primary" EndIcon="@Icons.Material.Filled.KeyboardArrowDown">
+        @foreach (var wl in _watchLists)
+        {
+            <MudMenuItem OnClick="() => AddToWatchList(wl.Id)">@wl.Name</MudMenuItem>
+        }
+        <MudDivider />
+        <MudMenuItem OnClick="CreateAndAddWatchList">Create New...</MudMenuItem>
+    </MudMenu>
+</div>
 
 @if (_loading)
 {
@@ -62,25 +76,63 @@ else if (_detail is not null)
             }
         </MudItem>
 
+        <MudItem xs="12" md="4">
+            <MudCard Elevation="2" Class="mb-3">
+                <MudCardHeader><CardHeaderContent><MudText Typo="Typo.h6">Analysis Breakdown</MudText></CardHeaderContent></MudCardHeader>
+                <MudCardContent>
+                    <MarketAnalysis.Web.Components.Shared.AnalysisReasoning ReasoningDict="@_latestReasoning" />
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+
         <!-- Chart -->
         <MudItem xs="12" md="8">
             <MudCard Elevation="2" Class="mb-3">
-                <MudCardHeader><CardHeaderContent><MudText Typo="Typo.h6">Price Chart</MudText></CardHeaderContent></MudCardHeader>
+                <MudCardHeader>
+                    <CardHeaderContent>
+                        <MudText Typo="Typo.h6">Technical Analysis</MudText>
+                    </CardHeaderContent>
+                </MudCardHeader>
                 <MudCardContent>
                     @if (_chartData.Any())
                     {
-                        <ApexChart TItem="CandleData" Title="" Height="400"
-                                   XAxisType="XAxisType.Datetime"
-                                   Options="_chartOptions">
-                            <ApexCandleSeries TItem="CandleData"
-                                Items="_chartData"
-                                Name="Price"
-                                XValue="e => e.Date"
-                                OpenValue="e => e.Open"
-                                HighValue="e => e.High"
-                                LowValue="e => e.Low"
-                                CloseValue="e => e.Close" />
-                        </ApexChart>
+                        <div class="mb-4">
+                            <MudText Typo="Typo.subtitle2" Class="mb-1">Price & Patterns</MudText>
+                            <ApexChart TItem="CandleData" Title="" Height="400"
+                                       XAxisType="XAxisType.Datetime"
+                                       Options="_chartOptions">
+                                <ApexCandleSeries TItem="CandleData"
+                                    Items="_chartData"
+                                    Name="Price"
+                                    XValue="e => e.Date"
+                                    OpenValue="e => e.Open"
+                                    HighValue="e => e.High"
+                                    LowValue="e => e.Low"
+                                    CloseValue="e => e.Close" />
+                            </ApexChart>
+                        </div>
+
+                        @if (_rsiData.Any())
+                        {
+                            <div class="mb-4">
+                                <MudText Typo="Typo.subtitle2" Class="mb-1">RSI (14)</MudText>
+                                <ApexChart TItem="IndicatorData" Height="150" XAxisType="XAxisType.Datetime" Options="_rsiOptions">
+                                    <ApexLineSeries TItem="IndicatorData" Items="_rsiData" Name="RSI" XValue="e => e.Date" YValue="e => (decimal?)e.Value" Color="#e91e63" />
+                                </ApexChart>
+                            </div>
+                        }
+
+                        @if (_macdData.Any())
+                        {
+                            <div>
+                                <MudText Typo="Typo.subtitle2" Class="mb-1">MACD (12, 26, 9)</MudText>
+                                <ApexChart TItem="IndicatorData" Height="150" XAxisType="XAxisType.Datetime" Options="_macdOptions">
+                                    <ApexLineSeries TItem="IndicatorData" Items="_macdData" Name="MACD" XValue="e => e.Date" YValue="e => (decimal?)e.Value" Color="#2196f3" />
+                                    <ApexLineSeries TItem="IndicatorData" Items="_macdSignalData" Name="Signal" XValue="e => e.Date" YValue="e => (decimal?)e.Value" Color="#ff9800" />
+                                    <ApexBarSeries TItem="IndicatorData" Items="_macdHistData" Name="Histogram" XValue="e => e.Date" YValue="e => (decimal?)e.Value" Color="#4caf50" />
+                                </ApexChart>
+                            </div>
+                        }
                     }
                     else
                     {
@@ -115,7 +167,7 @@ else if (_detail is not null)
         <!-- Sentiment -->
         <MudItem xs="12" md="6">
             <MudCard Elevation="2" Class="mb-3">
-                <MudCardHeader><CardHeaderContent><MudText Typo="Typo.h6">Sentiment</MudText></CardHeaderContent></MudCardHeader>
+                <MudCardHeader><CardHeaderContent><MudText Typo="Typo.h6">Sentiment Summary</MudText></CardHeaderContent></MudCardHeader>
                 <MudCardContent>
                     @if (_detail.RecentSentiment.Any())
                     {
@@ -138,6 +190,38 @@ else if (_detail is not null)
                 </MudCardContent>
             </MudCard>
         </MudItem>
+
+        <!-- Sentiment Details -->
+        <MudItem xs="12">
+            <MudCard Elevation="2" Class="mb-3">
+                <MudCardHeader><CardHeaderContent><MudText Typo="Typo.h6">Market Voice & Headlines</MudText></CardHeaderContent></MudCardHeader>
+                <MudCardContent>
+                    @if (_detail.RecentSentiment.Any())
+                    {
+                        <MudTabs Elevation="0" Outlined="true" Centered="true">
+                            @foreach (var s in _detail.RecentSentiment)
+                            {
+                                <MudTabPanel Text="@s.Source" Icon="@GetSentimentIcon(s.Source)">
+                                    <MudList T="string" Clickable="false" Dense="true">
+                                        @foreach (var head in s.Headlines.Take(15))
+                                        {
+                                            <MudListItem Icon="@Icons.Material.Filled.Article">
+                                                <MudText Typo="Typo.body2">@head</MudText>
+                                            </MudListItem>
+                                            <MudDivider />
+                                        }
+                                    </MudList>
+                                </MudTabPanel>
+                            }
+                        </MudTabs>
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.body2" Color="MudBlazor.Color.Secondary">No detailed headlines available.</MudText>
+                    }
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
     </MudGrid>
 }
 else
@@ -149,12 +233,41 @@ else
     [Parameter] public string Ticker { get; set; } = "";
 
     private StockDetailDto? _detail;
+    private Dictionary<string, object>? _latestReasoning;
     private bool _loading = true;
     private List<CandleData> _chartData = new();
+    private List<IndicatorData> _rsiData = new();
+    private List<IndicatorData> _macdData = new();
+    private List<IndicatorData> _macdSignalData = new();
+    private List<IndicatorData> _macdHistData = new();
+    
     private List<BreadcrumbItem> _breadcrumbs = new();
     private ApexChartOptions<CandleData> _chartOptions = new();
+    private ApexChartOptions<IndicatorData> _rsiOptions = new();
+    private ApexChartOptions<IndicatorData> _macdOptions = new();
 
+    private List<MarketAnalysis.Core.Entities.WatchList> _watchLists = new();
 
+    protected override async Task OnInitializedAsync()
+    {
+        _watchLists = await WatchRepo.GetAllAsync();
+    }
+
+    private async Task AddToWatchList(int wlId)
+    {
+        if (_detail == null) return;
+        await WatchRepo.AddItemAsync(wlId, _detail.Id);
+        Snackbar.Add($"Added {Ticker} to watchlist", Severity.Success);
+    }
+
+    private async Task CreateAndAddWatchList()
+    {
+        // Simple prompt for now, could be a MudDialog
+        Snackbar.Add("Create New Watchlist not yet fully implemented with dialog, adding to 'Default'...", Severity.Info);
+        var wl = await WatchRepo.AddAsync(new MarketAnalysis.Core.Entities.WatchList { Name = "New Watchlist", CreatedAtUtc = DateTime.UtcNow });
+        await AddToWatchList(wl.Id);
+        _watchLists = await WatchRepo.GetAllAsync();
+    }
 
     protected override async Task OnParametersSetAsync()
     {
@@ -164,11 +277,7 @@ else
             new(Ticker, href: null, disabled: true),
         };
 
-        _chartOptions = new ApexChartOptions<CandleData>
-        {
-            Chart = new Chart { Background = "transparent" },
-            Theme = new Theme { Mode = Mode.Dark },
-        };
+        ConfigureChartOptions();
 
         _loading = true;
         try
@@ -193,11 +302,34 @@ else
                 Close = p.Close,
             }).ToList();
 
+            // Fetch technical indicators from Python
+            try
+            {
+                var techResponse = await PythonClient.RunFullTechnicalAnalysisAsync(Ticker, priceDtos, 
+                    new List<IndicatorType> { IndicatorType.RSI14, IndicatorType.MACD }, new());
+                
+                foreach (var ind in techResponse.Indicators)
+                {
+                    var data = ind.Values.Select(kv => new IndicatorData { 
+                        Date = DateTime.Parse(kv.Key), 
+                        Value = (double)(kv.Value ?? 0) 
+                    }).OrderBy(x => x.Date).ToList();
+
+                    if (ind.Name == "RSI_14") _rsiData = data;
+                    else if (ind.Name == "MACD") _macdData = data;
+                    else if (ind.Name == "MACD_SIGNAL") _macdSignalData = data;
+                    else if (ind.Name == "MACD_HISTOGRAM") _macdHistData = data;
+                }
+            }
+            catch (Exception ex) { Snackbar.Add("Could not load indicators: " + ex.Message, Severity.Warning); }
+
             var patternDtos = signals.Select(s => new DetectedPatternDto(
                 s.PatternType.ToString(), s.Direction.ToString(), s.Confidence,
                 s.StartDate, s.EndDate,
                 System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, double>>(s.KeyPriceLevels ?? "{}") ?? new(),
                 s.Status, null)).ToList();
+
+            AddPatternAnnotations(patternDtos);
 
             FundamentalDataDto? fundDto = null;
             if (fundamental is not null)
@@ -222,6 +354,19 @@ else
             _detail = new StockDetailDto(stock.Id, stock.Ticker, stock.Name, stock.Sector, stock.Industry, stock.Exchange,
                 stock.MarketCap, prices.OrderByDescending(p => p.Date).FirstOrDefault()?.Close,
                 priceDtos, patternDtos, fundDto, sentDtos);
+
+            // Fetch reasoning from latest report
+            var latestReport = await ReportRepo.GetRecentAsync(5);
+            foreach (var r in latestReport)
+            {
+                var full = await ReportRepo.GetWithEntriesAsync(r.Id);
+                var entry = full?.Entries.FirstOrDefault(e => e.StockId == stock.Id);
+                if (entry != null && !string.IsNullOrEmpty(entry.Reasoning))
+                {
+                    _latestReasoning = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(entry.Reasoning);
+                    break;
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -230,6 +375,71 @@ else
         finally { _loading = false; }
     }
 
+    private void ConfigureChartOptions()
+    {
+        _chartOptions = new ApexChartOptions<CandleData>
+        {
+            Chart = new Chart { Background = "transparent", Group = "tech-sync", Toolbar = new Toolbar { Show = false } },
+            Theme = new Theme { Mode = Mode.Dark },
+            Xaxis = new XAxis { Labels = new XAxisLabels { Show = false } }
+        };
+
+        _rsiOptions = new ApexChartOptions<IndicatorData>
+        {
+            Chart = new Chart { Background = "transparent", Group = "tech-sync", Toolbar = new Toolbar { Show = false } },
+            Theme = new Theme { Mode = Mode.Dark },
+            Yaxis = new List<YAxis> { new YAxis { Min = 0, Max = 100, TickAmount = 2 } },
+            Annotations = new Annotations {
+                Yaxis = new List<AnnotationsYAxis> {
+                    new AnnotationsYAxis { Y = 70, BorderColor = "#ff5252", Label = new Label { Text = "Overbought" } },
+                    new AnnotationsYAxis { Y = 30, BorderColor = "#4caf50", Label = new Label { Text = "Oversold" } }
+                }
+            },
+            Xaxis = new XAxis { Labels = new XAxisLabels { Show = false } }
+        };
+
+        _macdOptions = new ApexChartOptions<IndicatorData>
+        {
+            Chart = new Chart { Background = "transparent", Group = "tech-sync" },
+            Theme = new Theme { Mode = Mode.Dark },
+            Stroke = new Stroke { Width = new List<double> { 2, 2, 0 } }
+        };
+    }
+
+    private void AddPatternAnnotations(List<DetectedPatternDto> patterns)
+    {
+        _chartOptions.Annotations ??= new Annotations { Yaxis = new List<AnnotationsYAxis>() };
+        
+        foreach (var p in patterns.Take(2)) // Show top 2 active patterns
+        {
+            if (p.KeyLevels.TryGetValue("neckline", out var neck))
+            {
+                _chartOptions.Annotations.Yaxis.Add(new AnnotationsYAxis {
+                    Y = (double)neck,
+                    BorderColor = "#2196f3",
+                    Label = new Label { Text = $"{p.PatternType} Neckline", Style = new Style { Background = "#2196f3" } }
+                });
+            }
+            if (p.KeyLevels.TryGetValue("target", out var target))
+            {
+                _chartOptions.Annotations.Yaxis.Add(new AnnotationsYAxis {
+                    Y = (double)target,
+                    BorderColor = "#ffeb3b",
+                    StrokeDashArray = 4,
+                    Label = new Label { Text = "Target", Style = new Style { Background = "#ffeb3b", Color = "#000" } }
+                });
+            }
+        }
+    }
+
+    private string GetSentimentIcon(string source) => source.ToLower() switch
+    {
+        "news" => Icons.Material.Filled.Newspaper,
+        "reddit" => Icons.Custom.Brands.Reddit,
+        "stocktwits" => Icons.Material.Filled.Chat,
+        _ => Icons.Material.Filled.Public
+    };
+
     private class CandleData
     {
         public DateTime Date { get; set; }
@@ -237,5 +447,11 @@ else
         public decimal High { get; set; }
         public decimal Low { get; set; }
         public decimal Close { get; set; }
+    }
+
+    private class IndicatorData
+    {
+        public DateTime Date { get; set; }
+        public double Value { get; set; }
     }
 }

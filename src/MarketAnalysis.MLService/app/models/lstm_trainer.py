@@ -10,6 +10,7 @@ from typing import Optional
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.metrics import roc_auc_score, precision_score, recall_score, f1_score
 
@@ -75,8 +76,17 @@ class LSTMTrainer:
         train_loader = self._make_loader(X_train, y_class_train, y_reg_train, shuffle=True)
         val_loader = self._make_loader(X_val, y_class_val, y_reg_val, shuffle=False)
 
+        # Compute pos_weight for class-imbalanced training
+        n_pos = float(y_class_train.sum())
+        n_neg = float(len(y_class_train) - n_pos)
+        pos_weight_val = n_neg / max(n_pos, 1.0)
+        logger.info(
+            f"LSTM {self.category}: pos_weight={pos_weight_val:.2f} "
+            f"({int(n_pos)} positives, {int(n_neg)} negatives)"
+        )
+
         # Loss functions
-        bce_loss = nn.BCELoss()
+        bce_loss = nn.BCELoss()  # used in _evaluate for val loss tracking
         mse_loss = nn.MSELoss()
         has_regression = y_reg_train is not None
 
@@ -114,9 +124,16 @@ class LSTMTrainer:
                 optimizer.zero_grad()
                 prob, return_pct = self.model(X_b)
 
-                loss = bce_loss(prob.squeeze(), y_cls_b)
+                # Weighted BCE: penalise false negatives more for imbalanced classes
+                prob_flat = prob.view(-1)
+                sample_weight = torch.where(
+                    y_cls_b == 1,
+                    torch.full_like(y_cls_b, pos_weight_val),
+                    torch.ones_like(y_cls_b),
+                )
+                loss = F.binary_cross_entropy(prob_flat, y_cls_b, weight=sample_weight)
                 if has_regression:
-                    loss = loss + 0.5 * mse_loss(return_pct.squeeze(), y_reg_b)
+                    loss = loss + 0.5 * mse_loss(return_pct.view(-1), y_reg_b)
 
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
@@ -179,6 +196,7 @@ class LSTMTrainer:
             "val_samples": len(X_val),
             "training_time_sec": round(elapsed, 1),
             "device": str(self.device),
+            "pos_weight": round(pos_weight_val, 4),
         }
 
         self.training_metrics = metrics
@@ -241,14 +259,14 @@ class LSTMTrainer:
                 y_cls_b = y_cls_b.to(self.device)
 
             prob, return_pct = self.model(X_b)
-            loss = bce_loss(prob.squeeze(), y_cls_b)
+            loss = bce_loss(prob.view(-1), y_cls_b)
             if has_regression:
-                loss = loss + 0.5 * mse_loss(return_pct.squeeze(), y_reg_b)
+                loss = loss + 0.5 * mse_loss(return_pct.view(-1), y_reg_b)
 
             total_loss += loss.item()
             n_batches += 1
 
-            all_probs.extend(prob.squeeze().cpu().numpy().tolist())
+            all_probs.extend(prob.view(-1).cpu().numpy().tolist())
             all_labels.extend(y_cls_b.cpu().numpy().tolist())
 
         avg_loss = total_loss / max(n_batches, 1)

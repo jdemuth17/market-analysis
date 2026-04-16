@@ -42,6 +42,20 @@ public class MLServiceClient : IMLServiceClient
         return (await resp.Content.ReadFromJsonAsync<MLPredictResponseDto>(JsonOpts))!;
     }
 
+    public async Task<MLPerformanceResponseDto> GetPerformanceAsync()
+    {
+        var resp = await _http.GetAsync("/api/ml/performance");
+        resp.EnsureSuccessStatusCode();
+        return (await resp.Content.ReadFromJsonAsync<MLPerformanceResponseDto>(JsonOpts))!;
+    }
+
+    public async Task<MLMonitorResponseDto> GetMonitoringStatusAsync()
+    {
+        var resp = await _http.GetAsync("/api/ml/monitor");
+        resp.EnsureSuccessStatusCode();
+        return (await resp.Content.ReadFromJsonAsync<MLMonitorResponseDto>(JsonOpts))!;
+    }
+
     public async Task<bool> HealthCheckAsync()
     {
         try

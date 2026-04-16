@@ -16,3 +16,4 @@ beautifulsoup4>=4.12.0
 lxml>=5.0.0
 feedparser>=6.0.0
 scipy>=1.12.0
+vaderSentiment>=3.3.2

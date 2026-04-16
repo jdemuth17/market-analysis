@@ -46,6 +46,15 @@ public class ScanProgressTracker : IScanProgressTracker
         }
     }
 
+    public void UpdateTotalTickers(int totalTickers)
+    {
+        lock (_lock)
+        {
+            TotalTickers = totalTickers;
+            TickersProcessed = 0;
+        }
+    }
+
     public void SetStep(int stepNumber, string stepName)
     {
         lock (_lock)

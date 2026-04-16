@@ -12,7 +12,7 @@ public interface IPythonServiceClient
         string ticker, List<OHLCVBarDto> bars,
         List<IndicatorType> indicators, List<PatternType> patterns, int lookbackDays = 120);
     Task<FullSentimentResponseDto> RunSentimentPipelineAsync(
-        List<string> tickers, List<SentimentSource> sources, int maxItemsPerSource = 30);
+        List<string> tickers, List<SentimentSource> sources, int maxItemsPerSource = 30, bool lowResourceMode = false);
     Task<FundamentalScoreDto> ScoreFundamentalsAsync(FundamentalDataDto data);
     Task<BatchFundamentalScoreResponseDto> ScoreFundamentalsBatchAsync(List<FundamentalDataDto> items);
     Task<List<string>> GetTickerListAsync(string indexName);
@@ -44,6 +44,8 @@ public interface IDailyScanService
 public interface IMLServiceClient
 {
     Task<MLPredictResponseDto> PredictAsync(List<string> tickers, List<ReportCategory> categories, bool includeShap = true);
+    Task<MLPerformanceResponseDto> GetPerformanceAsync();
+    Task<MLMonitorResponseDto> GetMonitoringStatusAsync();
     Task<bool> HealthCheckAsync();
 }
 
@@ -51,6 +53,7 @@ public interface IMLServiceClient
 public interface IMLRetrainingService
 {
     Task RunRetrainingAsync(List<string> models, CancellationToken cancellationToken = default);
+    MLRetrainingStatusDto GetStatus();
 }
 
 /// <summary>Thread-safe singleton that tracks scan progress for UI polling.</summary>
@@ -68,6 +71,7 @@ public interface IScanProgressTracker
     string? ErrorMessage { get; }
 
     void Start(int totalTickers, int totalSteps = 6);
+    void UpdateTotalTickers(int totalTickers);
     void SetStep(int stepNumber, string stepName);
     void IncrementTicker();
     void Complete();

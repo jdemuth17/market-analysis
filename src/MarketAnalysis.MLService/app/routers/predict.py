@@ -37,6 +37,7 @@ class StockPrediction(BaseModel):
     ensemble_score: float
     predicted_return_pct: Optional[float] = None
     confidence: float
+    optimal_threshold: Optional[float] = None  # calibrated decision threshold (0-100 scale)
     top_features: list[FeatureImpact] = []
 
 
@@ -81,12 +82,15 @@ async def predict(
     # Load normalizer if available
     normalizer = model_registry.get_normalizer()
 
-    # Build features
+    # Build features in one batch
     builder = FeatureBuilder(session)
-    predictions = []
+    batch_features = await builder.build_batch_snapshots(
+        [s.Id for s in stock_map.values()], as_of
+    )
 
+    predictions = []
     for ticker, stock in stock_map.items():
-        feature_vector = await builder.build_snapshot(stock.Id, as_of)
+        feature_vector = batch_features.get(stock.Id)
         if feature_vector is None:
             logger.warning(f"Insufficient data for {ticker}, skipping")
             continue
@@ -142,6 +146,10 @@ async def predict(
             else:
                 ensemble = xgb_prob * 100
 
+            # Calibrated threshold (convert 0-1 prob to 0-100 score scale)
+            cal_thresh = model_registry.get_calibration_threshold(category)
+            optimal_threshold = round(cal_thresh * 100, 1) if cal_thresh is not None else None
+
             predictions.append(StockPrediction(
                 ticker=ticker,
                 category=category,
@@ -149,6 +157,7 @@ async def predict(
                 lstm_score=round(lstm_score * 100, 1) if lstm_score is not None else None,
                 ensemble_score=round(ensemble, 1),
                 confidence=round(xgb_prob, 3),
+                optimal_threshold=optimal_threshold,
                 top_features=top_features,
             ))
 

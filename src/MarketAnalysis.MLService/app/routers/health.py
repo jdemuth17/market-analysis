@@ -2,6 +2,7 @@ import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Depends
+from app.config import settings
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.connection import get_session
@@ -34,4 +35,11 @@ async def health_check(session: AsyncSession = Depends(get_session)):
         },
         "models": model_status,
         "models_ready": model_registry.has_models(),
+        "lstm_settings": {
+            "batch_size": settings.lstm_batch_size,
+            "sequence_length": settings.lstm_sequence_length,
+            "hidden_size_1": settings.lstm_hidden_size_1,
+            "hidden_size_2": settings.lstm_hidden_size_2,
+            "pytorch_alloc_conf": getattr(settings, "pytorch_alloc_conf", None),
+        },
     }

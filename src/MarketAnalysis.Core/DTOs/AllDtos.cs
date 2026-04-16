@@ -196,7 +196,9 @@ public record UserScanConfigDto(
     double SentimentWeight,
     List<ReportCategory> EnabledCategories,
     List<SentimentSource> EnabledSentimentSources,
-    List<IndicatorType> EnabledIndicators
+    List<IndicatorType> EnabledIndicators,
+    bool UseMlScoring,
+    bool LowResourceMode
 );
 
 // --- WatchList DTOs ---
@@ -303,6 +305,7 @@ public record MLStockPredictionDto(
     double EnsembleScore,
     double? PredictedReturnPct,
     double Confidence,
+    double? OptimalThreshold,
     List<MLFeatureImpactDto> TopFeatures
 );
 
@@ -311,4 +314,44 @@ public record MLPredictResponseDto(
     int TotalTickers,
     List<string> CategoriesScored,
     string? ModelVersion
+);
+
+// --- ML Management & Monitoring DTOs ---
+
+public record MLDriftAlertDto(
+    string Category,
+    string Metric,
+    string Message,
+    string Severity
+);
+
+public record MLMonitorResponseDto(
+    string Status,
+    Dictionary<string, bool> ModelsLoaded,
+    Dictionary<string, object> PredictionStats,
+    List<MLDriftAlertDto> DriftAlerts,
+    string? LastTrained
+);
+
+public record MLPerformanceEntryDto(
+    string Category,
+    string ModelType,
+    double? Auc,
+    double? Precision,
+    double? Recall,
+    double? F1,
+    string? TrainedAt
+);
+
+public record MLPerformanceResponseDto(
+    List<MLPerformanceEntryDto> Entries,
+    Dictionary<string, object>? TrainingSummary
+);
+
+public record MLRetrainingStatusDto(
+    bool IsRunning,
+    string? CurrentPhase,
+    string? CurrentJobId,
+    string? StartedAt,
+    string? ErrorMessage
 );

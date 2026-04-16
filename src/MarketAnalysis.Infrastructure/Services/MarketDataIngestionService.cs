@@ -84,8 +84,10 @@ public class MarketDataIngestionService : IMarketDataIngestionService
     {
         if (tickers.Count == 0) return;
 
-        // Fetch in batches of 50
-        foreach (var batch in tickers.Chunk(50))
+        // Fetch in batches of 50, with up to 5 parallel batches
+        var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = 5 };
+
+        await Parallel.ForEachAsync(tickers.Chunk(50), parallelOptions, async (batch, ct) =>
         {
             try
             {
@@ -95,7 +97,11 @@ public class MarketDataIngestionService : IMarketDataIngestionService
                 {
                     try
                     {
-                        var stock = await _stockRepo.GetOrCreateAsync(tickerData.Ticker);
+                        using var scope = _scopeFactory.CreateScope();
+                        var stockRepo = scope.ServiceProvider.GetRequiredService<IStockRepository>();
+                        var priceRepo = scope.ServiceProvider.GetRequiredService<IPriceHistoryRepository>();
+
+                        var stock = await stockRepo.GetOrCreateAsync(tickerData.Ticker);
                         var prices = tickerData.Bars.Select(b => new PriceHistory
                         {
                             StockId = stock.Id,
@@ -108,7 +114,7 @@ public class MarketDataIngestionService : IMarketDataIngestionService
                             Volume = b.Volume,
                         }).ToList();
 
-                        await _priceRepo.UpsertRangeAsync(stock.Id, prices);
+                        await priceRepo.UpsertRangeAsync(stock.Id, prices);
                     }
                     catch (Exception ex)
                     {
@@ -119,28 +125,20 @@ public class MarketDataIngestionService : IMarketDataIngestionService
                         _progress.IncrementTicker();
                     }
                 }
-
-                _logger.LogInformation("Batch prices ({Period}) ingested: {Ok}/{Total}",
-                    period, response.Successful, response.TotalTickers);
-            }
-            catch (HttpRequestException httpEx)
-            {
-                _logger.LogWarning(httpEx, "Price fetch HTTP error for batch: {Status}", httpEx.StatusCode);
-                foreach (var _ in batch) _progress.IncrementTicker();
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Price fetch failed for batch: {Message}", ex.Message);
                 foreach (var _ in batch) _progress.IncrementTicker();
             }
-        }
+        });
     }
 
     public async Task IngestFundamentalsAsync(List<string> tickers)
     {
         _logger.LogInformation("Ingesting fundamentals for {Count} tickers", tickers.Count);
 
-        // --- Incremental: skip tickers that already have today's fundamentals ---
+        // ... (existing skip logic)
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var allStocks = await _stockRepo.GetByTickersAsync(tickers);
         var stockIds = allStocks.Select(s => s.Id).ToList();
@@ -163,20 +161,20 @@ public class MarketDataIngestionService : IMarketDataIngestionService
             _logger.LogInformation(
                 "Fundamentals: skipping {Skipped} tickers already updated today, fetching {Remaining}",
                 skipped, tickersToFetch.Count);
-            // Increment progress for skipped tickers
             for (int i = 0; i < skipped; i++) _progress.IncrementTicker();
         }
 
         if (tickersToFetch.Count == 0) return;
 
-        foreach (var batch in tickersToFetch.Chunk(50))
+        var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = 5 };
+
+        await Parallel.ForEachAsync(tickersToFetch.Chunk(50), parallelOptions, async (batch, ct) =>
         {
             try
             {
                 var response = await _python.FetchFundamentalsAsync(batch.ToList());
                 var validData = response.Data.Where(d => d.Error is null).ToList();
 
-                // Score all fundamentals in one batch HTTP call instead of N individual calls
                 Dictionary<string, FundamentalScoreDto> scoreMap = new();
                 if (validData.Count > 0)
                 {
@@ -196,24 +194,25 @@ public class MarketDataIngestionService : IMarketDataIngestionService
                 {
                     try
                     {
-                        var stock = await _stockRepo.GetOrCreateAsync(fd.Ticker, fd.CompanyName);
+                        using var scope = _scopeFactory.CreateScope();
+                        var stockRepo = scope.ServiceProvider.GetRequiredService<IStockRepository>();
+                        var fundamentalRepo = scope.ServiceProvider.GetRequiredService<IFundamentalRepository>();
 
-                        // Update stock metadata
+                        var stock = await stockRepo.GetOrCreateAsync(fd.Ticker, fd.CompanyName);
                         stock.Sector = fd.Sector;
                         stock.Industry = fd.Industry;
                         stock.Exchange = fd.Exchange;
                         stock.MarketCap = fd.MarketCap.HasValue ? (decimal)fd.MarketCap.Value : null;
                         stock.LastUpdatedUtc = DateTime.UtcNow;
-                        await _stockRepo.UpdateAsync(stock);
+                        await stockRepo.UpdateAsync(stock);
 
-                        // Use batch score if available, otherwise default
                         var score = scoreMap.TryGetValue(fd.Ticker, out var s) ? s
                             : new FundamentalScoreDto(fd.Ticker, 50, 50, 50, 50, 50);
 
                         var snapshot = new FundamentalSnapshot
                         {
                             StockId = stock.Id,
-                            SnapshotDate = DateOnly.FromDateTime(DateTime.UtcNow),
+                            SnapshotDate = today,
                             PeRatio = fd.PeRatio,
                             ForwardPe = fd.ForwardPe,
                             PegRatio = fd.PegRatio,
@@ -240,7 +239,7 @@ public class MarketDataIngestionService : IMarketDataIngestionService
                             RawData = System.Text.Json.JsonSerializer.Serialize(fd),
                         };
 
-                        await _fundamentalRepo.AddAsync(snapshot);
+                        await fundamentalRepo.AddAsync(snapshot);
                     }
                     catch (Exception ex)
                     {
@@ -252,21 +251,15 @@ public class MarketDataIngestionService : IMarketDataIngestionService
                     }
                 }
 
-                // Increment progress for failed tickers too
                 foreach (var fd in response.Data.Where(d => d.Error is not null))
                     _progress.IncrementTicker();
-            }
-            catch (HttpRequestException httpEx)
-            {
-                _logger.LogWarning(httpEx, "Fundamentals fetch HTTP error for batch: {Status}", httpEx.StatusCode);
-                foreach (var _ in batch) _progress.IncrementTicker();
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Fundamentals fetch failed for batch: {Message}", ex.Message);
                 foreach (var _ in batch) _progress.IncrementTicker();
             }
-        }
+        });
     }
 
     public async Task IngestTechnicalsAsync(List<string> tickers, UserScanConfig config)
@@ -328,8 +321,22 @@ public class MarketDataIngestionService : IMarketDataIngestionService
 
                 foreach (var pattern in analysis.DetectedPatterns)
                 {
-                    if (!Enum.TryParse<PatternType>(pattern.PatternType, true, out var pt)) continue;
-                    if (!Enum.TryParse<SignalDirection>(pattern.Direction, true, out var dir)) continue;
+                    // Python returns snake_case (double_top), C# uses PascalCase (DoubleTop)
+                    var ptStr = ToPascalCase(pattern.PatternType);
+                    var dirStr = ToPascalCase(pattern.Direction);
+
+                    if (!Enum.TryParse<PatternType>(ptStr, true, out var pt))
+                    {
+                        _logger.LogWarning("Failed to parse PatternType: {Raw} -> {Converted}", 
+                            pattern.PatternType, ptStr);
+                        continue;
+                    }
+                    if (!Enum.TryParse<SignalDirection>(dirStr, true, out var dir))
+                    {
+                        _logger.LogWarning("Failed to parse SignalDirection: {Raw} -> {Converted}", 
+                            pattern.Direction, dirStr);
+                        continue;
+                    }
 
                     var signal = new TechnicalSignal
                     {
@@ -407,7 +414,7 @@ public class MarketDataIngestionService : IMarketDataIngestionService
             {
                 _logger.LogInformation("Sentiment batch: {Count} tickers", batch.Length);
                 var response = await _python.RunSentimentPipelineAsync(
-                    batch.ToList(), config.EnabledSentimentSources.ToList());
+                    batch.ToList(), config.EnabledSentimentSources.ToList(), lowResourceMode: config.LowResourceMode);
 
                 foreach (var sentiment in response.Data.Where(d => d.Error is null))
                 {
@@ -446,5 +453,13 @@ public class MarketDataIngestionService : IMarketDataIngestionService
                 foreach (var _ in batch) _progress.IncrementTicker();
             }
         }
+    }
+
+    private static string ToPascalCase(string input)
+    {
+        if (string.IsNullOrEmpty(input)) return input;
+        
+        return string.Join("", input.Split(new[] { '_', ' ', '-' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => char.ToUpperInvariant(s[0]) + s.Substring(1).ToLowerInvariant()));
     }
 }

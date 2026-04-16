@@ -1,0 +1,171 @@
+{
+  "trained_at": "2026-04-01T17:26:19.246335",
+  "dataset_rows": 1294928,
+  "feature_count": 43,
+  "xgboost_categories": [
+    "DayTrade",
+    "SwingTrade",
+    "ShortTermHold",
+    "LongTermHold"
+  ],
+  "lstm_categories": [
+    "DayTrade",
+    "SwingTrade",
+    "ShortTermHold",
+    "LongTermHold"
+  ],
+  "ensemble_categories": [
+    "DayTrade",
+    "SwingTrade",
+    "ShortTermHold",
+    "LongTermHold"
+  ],
+  "metrics": {
+    "xgboost_daytrade": {
+      "category": "DayTrade",
+      "auc": 0.7180227588143183,
+      "precision": 0.26393422893505636,
+      "recall": 0.7882157378080283,
+      "f1": 0.3954514462169579,
+      "brier_score": 0.2199239879846573,
+      "log_loss": 0.6082913138023189,
+      "cv_auc_mean": 0.7151126345295988,
+      "cv_auc_std": 0.0076643676144278645,
+      "cv_folds": 5,
+      "train_samples": 1033902,
+      "val_samples": 258476,
+      "positive_rate_train": 0.17554661853831408,
+      "positive_rate_val": 0.1722287562481623,
+      "scale_pos_weight": 4.72,
+      "best_iteration": 174
+    },
+    "xgboost_swingtrade": {
+      "category": "SwingTrade",
+      "auc": 0.7047367196227123,
+      "precision": 0.23731138545953362,
+      "recall": 0.7767469550765261,
+      "f1": 0.3635508701861119,
+      "brier_score": 0.22448012232780457,
+      "log_loss": 0.617363529574917,
+      "cv_auc_mean": 0.7073477857721718,
+      "cv_auc_std": 0.016153365938443645,
+      "cv_folds": 5,
+      "train_samples": 1025742,
+      "val_samples": 256436,
+      "positive_rate_train": 0.16658282492088655,
+      "positive_rate_val": 0.1572049166263707,
+      "scale_pos_weight": 5.07,
+      "best_iteration": 92
+    },
+    "xgboost_shorttermhold": {
+      "category": "ShortTermHold",
+      "auc": 0.7078453698335301,
+      "precision": 0.2183367869570317,
+      "recall": 0.7742132261195065,
+      "f1": 0.3406160414760598,
+      "brier_score": 0.22014306485652924,
+      "log_loss": 0.6149437120193948,
+      "cv_auc_mean": 0.7124917510720554,
+      "cv_auc_std": 0.019827892638825617,
+      "cv_folds": 5,
+      "train_samples": 1015542,
+      "val_samples": 253886,
+      "positive_rate_train": 0.1535387015012673,
+      "positive_rate_val": 0.14205194457354875,
+      "scale_pos_weight": 5.61,
+      "best_iteration": 36
+    },
+    "xgboost_longtermhold": {
+      "category": "LongTermHold",
+      "auc": 0.6943283266534701,
+      "precision": 0.21746110786771525,
+      "recall": 0.7387563436971358,
+      "f1": 0.3360130536872687,
+      "brier_score": 0.22085674107074738,
+      "log_loss": 0.607830160536889,
+      "cv_auc_mean": 0.704395656959693,
+      "cv_auc_std": 0.02426845647088119,
+      "cv_folds": 5,
+      "train_samples": 974742,
+      "val_samples": 243686,
+      "positive_rate_train": 0.1436893044518447,
+      "positive_rate_val": 0.14069745492149735,
+      "scale_pos_weight": 5.99,
+      "best_iteration": 225
+    },
+    "lstm_daytrade": {
+      "category": "DayTrade",
+      "auc": 0.7075533718322938,
+      "precision": 0.6071428571428571,
+      "recall": 0.006178223579008577,
+      "f1": 0.012231975823859547,
+      "val_loss": 0.4179,
+      "best_epoch": 7,
+      "total_epochs": 17,
+      "train_samples": 993102,
+      "val_samples": 248276,
+      "training_time_sec": 2029.6,
+      "device": "cuda"
+    },
+    "lstm_swingtrade": {
+      "category": "SwingTrade",
+      "auc": 0.6994252212569596,
+      "precision": 0.61698956780924,
+      "recall": 0.010797558812790152,
+      "f1": 0.021223694665880605,
+      "val_loss": 0.4201,
+      "best_epoch": 3,
+      "total_epochs": 13,
+      "train_samples": 984942,
+      "val_samples": 246236,
+      "training_time_sec": 1336.6,
+      "device": "cuda"
+    },
+    "lstm_shorttermhold": {
+      "category": "ShortTermHold",
+      "auc": 0.7052974678784352,
+      "precision": 0.5137130801687764,
+      "recall": 0.014030538749639873,
+      "f1": 0.027315048516461944,
+      "val_loss": 0.4138,
+      "best_epoch": 2,
+      "total_epochs": 12,
+      "train_samples": 974742,
+      "val_samples": 243686,
+      "training_time_sec": 1292.0,
+      "device": "cuda"
+    },
+    "lstm_longtermhold": {
+      "category": "LongTermHold",
+      "auc": 0.6859662491139382,
+      "precision": 0.5429917550058893,
+      "recall": 0.01419466083689996,
+      "f1": 0.027666086539038588,
+      "val_loss": 0.4905,
+      "best_epoch": 2,
+      "total_epochs": 12,
+      "train_samples": 933942,
+      "val_samples": 233486,
+      "training_time_sec": 1211.7,
+      "device": "cuda"
+    },
+    "ensemble": {
+      "DayTrade": {
+        "xgboost": 0.5,
+        "lstm": 0.5
+      },
+      "SwingTrade": {
+        "xgboost": 0.5,
+        "lstm": 0.5
+      },
+      "ShortTermHold": {
+        "xgboost": 0.5,
+        "lstm": 0.5
+      },
+      "LongTermHold": {
+        "xgboost": 0.5,
+        "lstm": 0.5
+      }
+    }
+  }
+}
