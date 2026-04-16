@@ -5,6 +5,10 @@ from typing import Optional
 import threading
 
 from models.sentiment import SentimentResult
+from models.ai_analysis import SentimentAnalysisResponse
+from config import get_settings
+from services.ollama_client import OllamaClient, OllamaQueueFullError
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -15,47 +19,28 @@ class SentimentAnalyzer:
     _instance: Optional["SentimentAnalyzer"] = None
     _lock = threading.Lock()
 
-    def __init__(self):
+    def __init__(self, ollama: OllamaClient = None):
         self._pipeline = None
+        self._ollama = ollama
         self._vader = None
         self._device_name = "cpu"
         self._batch_size = 32
-        self._load_model()
+        if self._ollama is None:
+            self._load_model()
 
     def _load_model(self):
-        """Load FinBERT model on GPU (device=0) when CUDA is available, CPU otherwise."""
+        """Initialize Ollama client for sentiment analysis."""
         try:
-            import torch
-            from transformers import pipeline as hf_pipeline
-
-            # Skip deep learning model if memory is extremely tight
-            # This can be set via env var if needed, but here we just try to load
-            if torch.cuda.is_available():
-                device = 0
-                self._device_name = "cuda"
-                self._batch_size = 64
-                logger.info(f"CUDA GPU detected: {torch.cuda.get_device_name(0)}")
+            settings = get_settings()
+            if settings.ollama_api_key and len(settings.ollama_api_key) >= 10:
+                self._ollama = OllamaClient(settings)
+                logger.info("Ollama client initialized for sentiment analysis")
             else:
-                device = -1
-                self._device_name = "cpu"
-                self._batch_size = 32
-                logger.info("No CUDA GPU detected, using CPU")
-
-            logger.info("Loading FinBERT model...")
-            self._pipeline = hf_pipeline(
-                "sentiment-analysis",
-                model="ProsusAI/finbert",
-                tokenizer="ProsusAI/finbert",
-                truncation=True,
-                max_length=512,
-                device=device,
-            )
-            logger.info(f"FinBERT model loaded on {self._device_name}")
-
+                logger.warning("MA_OLLAMA_API_KEY not set or too short, using VADER-only mode")
         except Exception as e:
-            logger.error(f"Failed to load FinBERT model: {e}")
-            logger.warning("FinBERT unavailable, using fallback/VADER only")
-            self._pipeline = None
+            logger.error(f"Failed to initialize Ollama client: {e}")
+            logger.warning("Ollama unavailable, using VADER fallback")
+            self._ollama = None
 
     def _get_vader(self):
         """Lazy load VADER analyzer."""
@@ -81,14 +66,14 @@ class SentimentAnalyzer:
                     cls._instance = cls()
         return cls._instance
 
-    def analyze_texts(self, texts: list[str], batch_size: int | None = None, use_vader: bool = False) -> list[SentimentResult]:
+    async def analyze_texts(self, texts: list[str], batch_size: int | None = None, use_vader: bool = False) -> list[SentimentResult]:
         """
-        Analyze a batch of texts using FinBERT or VADER.
+        Analyze a batch of texts using Ollama Cloud or VADER.
 
         Args:
             texts: List of strings to analyze
-            batch_size: Override default batch size for FinBERT
-            use_vader: If True, uses the lightweight VADER analyzer instead of FinBERT.
+            batch_size: Override default batch size
+            use_vader: If True, uses the lightweight VADER analyzer instead of Ollama.
         """
         if not texts:
             return []
@@ -96,11 +81,12 @@ class SentimentAnalyzer:
         if use_vader:
             return self._analyze_vader(texts)
 
-        if self._pipeline is None:
-            return self._fallback_analyze(texts)
+        if self._ollama is None:
+            return self._analyze_vader(texts)
 
         effective_batch_size = batch_size if batch_size is not None else self._batch_size
         results: list[SentimentResult] = []
+        settings = get_settings()
 
         try:
             for i in range(0, len(texts), effective_batch_size):
@@ -108,28 +94,41 @@ class SentimentAnalyzer:
                 cleaned = [t.strip()[:512] for t in batch if t.strip()]
                 if not cleaned: continue
 
-                raw_results = self._pipeline(cleaned)
-
-                for text, raw in zip(cleaned, raw_results):
-                    label = raw["label"].lower()
-                    score = raw["score"]
-
-                    # Map to three-way scores
-                    positive = score if label == "positive" else (1 - score) / 2
-                    negative = score if label == "negative" else (1 - score) / 2
-                    neutral = score if label == "neutral" else (1 - score) / 2
-
-                    results.append(SentimentResult(
-                        text=text[:200],
-                        positive=round(positive, 4),
-                        negative=round(negative, 4),
-                        neutral=round(neutral, 4),
-                        label=label,
-                    ))
+                for text in cleaned:
+                    try:
+                        messages = [
+                            {"role": "system", "content": "You are a financial sentiment classifier. Analyze the following text and return sentiment scores."},
+                            {"role": "user", "content": text}
+                        ]
+                        
+                        response = await self._ollama.chat(
+                            model=settings.ollama_sentiment_model,
+                            messages=messages,
+                            format_schema=SentimentAnalysisResponse.model_json_schema()
+                        )
+                        
+                        sentiment_data = response.get("message", {}).get("content", "{}")
+                        parsed = json.loads(sentiment_data)
+                        
+                        results.append(SentimentResult(
+                            text=text[:200],
+                            positive=round(parsed["positive"], 4),
+                            negative=round(parsed["negative"], 4),
+                            neutral=round(parsed["neutral"], 4),
+                            label=parsed["label"],
+                        ))
+                    except OllamaQueueFullError:
+                        logger.warning(f"Ollama queue full for text, using VADER fallback")
+                        vader_result = self._analyze_vader([text])[0]
+                        results.append(vader_result)
+                    except Exception as e:
+                        logger.warning(f"Ollama sentiment failed for text, using VADER: {e}")
+                        vader_result = self._analyze_vader([text])[0]
+                        results.append(vader_result)
 
         except Exception as e:
-            logger.error(f"FinBERT inference error: {e}")
-            results.extend(self._fallback_analyze(texts[len(results):]))
+            logger.error(f"Ollama batch inference error: {e}")
+            results.extend(self._analyze_vader(texts[len(results):]))
 
         return results
 

@@ -91,8 +91,8 @@
             <MudCardActions>
                 <MudButton Variant="Variant.Filled" Color="Color.Primary"
                            StartIcon="@Icons.Material.Filled.PlayArrow"
-                           OnClick="TriggerScan" Disabled="Progress.IsRunning">
-                    @if (Progress.IsRunning) { <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" /> }
+                           OnClick="TriggerScan" Disabled="Progress.IsRunning || _startingScan">
+                    @if (Progress.IsRunning || _startingScan) { <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" /> }
                     Run Full Scan
                 </MudButton>
             </MudCardActions>
@@ -160,6 +160,7 @@
 @code {
     private bool _pythonHealthy;
     private bool _checkingHealth;
+    private bool _startingScan;
     private List<MarketAnalysis.Core.Entities.IndexDefinition> _indexes = new();
     private CancellationTokenSource? _pollCts;
 
@@ -181,8 +182,9 @@
 
     private void TriggerScan()
     {
-        if (Progress.IsRunning) return;
+        if (Progress.IsRunning || _startingScan) return;
 
+        _startingScan = true;
         Snackbar.Add("Scan started — this may take several minutes...", Severity.Info);
 
         _ = Task.Run(async () =>
@@ -198,8 +200,14 @@
                 await InvokeAsync(() =>
                 {
                     Snackbar.Add($"Scan failed: {ex.Message}", Severity.Error);
+                    _startingScan = false;
                     StateHasChanged();
                 });
+            }
+            finally
+            {
+                _startingScan = false;
+                await InvokeAsync(StateHasChanged);
             }
         });
 

@@ -157,4 +157,76 @@ public class PythonServiceClient : IPythonServiceClient
             return false;
         }
     }
+
+    public async Task<AiAnalysisResponseDto> GenerateAiReportAsync(AiAnalysisRequestDto request)
+    {
+        var payload = new
+        {
+            ticker = request.Ticker,
+            price_history = request.PriceHistory.Select(b => new
+            {
+                date = b.Date.ToString("yyyy-MM-dd"),
+                open = (double)b.Open,
+                high = (double)b.High,
+                low = (double)b.Low,
+                close = (double)b.Close,
+                volume = b.Volume
+            }),
+            technicals = request.Technicals,
+            fundamentals = request.Fundamentals,
+            sentiment = request.Sentiment
+        };
+        var resp = await _http.PostAsJsonAsync("/api/ai-analysis/report", payload, JsonOpts);
+        resp.EnsureSuccessStatusCode();
+        return (await resp.Content.ReadFromJsonAsync<AiAnalysisResponseDto>(JsonOpts))!;
+    }
+
+    public async Task<TradeLevelDto> GenerateTradeLevelsAsync(AiAnalysisRequestDto request)
+    {
+        var payload = new
+        {
+            ticker = request.Ticker,
+            price_history = request.PriceHistory.Select(b => new
+            {
+                date = b.Date.ToString("yyyy-MM-dd"),
+                open = (double)b.Open,
+                high = (double)b.High,
+                low = (double)b.Low,
+                close = (double)b.Close,
+                volume = b.Volume
+            }),
+            technicals = request.Technicals,
+            fundamentals = request.Fundamentals,
+            sentiment = request.Sentiment
+        };
+        var resp = await _http.PostAsJsonAsync("/api/ai-analysis/trade-levels", payload, JsonOpts);
+        resp.EnsureSuccessStatusCode();
+        return (await resp.Content.ReadFromJsonAsync<TradeLevelDto>(JsonOpts))!;
+    }
+
+    public async Task<List<AiAnalysisResponseDto>> GenerateBatchReportsAsync(List<AiAnalysisRequestDto> requests)
+    {
+        var payload = new
+        {
+            items = requests.Select(r => new
+            {
+                ticker = r.Ticker,
+                price_history = r.PriceHistory.Select(b => new
+                {
+                    date = b.Date.ToString("yyyy-MM-dd"),
+                    open = (double)b.Open,
+                    high = (double)b.High,
+                    low = (double)b.Low,
+                    close = (double)b.Close,
+                    volume = b.Volume
+                }),
+                technicals = r.Technicals,
+                fundamentals = r.Fundamentals,
+                sentiment = r.Sentiment
+            })
+        };
+        var resp = await _http.PostAsJsonAsync("/api/ai-analysis/batch-reports", payload, JsonOpts);
+        resp.EnsureSuccessStatusCode();
+        return (await resp.Content.ReadFromJsonAsync<List<AiAnalysisResponseDto>>(JsonOpts))!;
+    }
 }

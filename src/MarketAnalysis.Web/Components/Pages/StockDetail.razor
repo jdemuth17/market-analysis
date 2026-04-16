@@ -1,8 +1,11 @@
 @page "/stock/{Ticker}"
 
 @using ApexCharts
+@using System.Net.Http.Json
+@using MarketAnalysis.Core.DTOs
 @inject IStockRepository StockRepo
 @inject IPriceHistoryRepository PriceRepo
+@inject HttpClient Http
 @inject ITechnicalSignalRepository TechRepo
 @inject IFundamentalRepository FundRepo
 @inject ISentimentRepository SentRepo
@@ -191,6 +194,75 @@ else if (_detail is not null)
             </MudCard>
         </MudItem>
 
+        <!-- AI Analyst Report -->
+        <MudItem xs="12" md="6">
+            <MudCard Elevation="2" Class="mb-3">
+                <MudCardHeader>
+                    <CardHeaderContent>
+                        <MudText Typo="Typo.h6">AI Analyst Report</MudText>
+                    </CardHeaderContent>
+                    <CardHeaderActions>
+                        <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" OnClick="GenerateReport" Disabled="_generatingReport">Generate Report</MudButton>
+                    </CardHeaderActions>
+                </MudCardHeader>
+                <MudCardContent>
+                    @if (_generatingReport)
+                    {
+                        <MudProgressLinear Indeterminate="true" />
+                    }
+                    else if (_aiReport != null)
+                    {
+                        <MudText Typo="Typo.body2" Class="mb-2">@_aiReport.Summary</MudText>
+                        <MudDivider Class="my-2" />
+                        <MudText Typo="Typo.subtitle2">Outlook:</MudText>
+                        <MudText Typo="Typo.body2" Class="mb-2">@_aiReport.Outlook</MudText>
+                        <MudChip T="string" Color="@GetRecommendationColor(_aiReport.Recommendation)" Size="MudBlazor.Size.Small">@_aiReport.Recommendation</MudChip>
+                        <MudText Typo="Typo.caption" Class="mb-2">Confidence: @_aiReport.Confidence.ToString("P0")</MudText>
+                        <MudText Typo="Typo.subtitle2" Class="mt-2">Key Factors:</MudText>
+                        @foreach (var factor in _aiReport.KeyFactors)
+                        {
+                            <MudChip T="string" Color="MudBlazor.Color.Success" Size="MudBlazor.Size.Small" Class="mr-1 mb-1">@factor</MudChip>
+                        }
+                        <MudText Typo="Typo.subtitle2" Class="mt-2">Risk Factors:</MudText>
+                        @foreach (var risk in _aiReport.RiskFactors)
+                        {
+                            <MudChip T="string" Color="MudBlazor.Color.Error" Size="MudBlazor.Size.Small" Class="mr-1 mb-1">@risk</MudChip>
+                        }
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.body2">No AI report available. Click "Generate Report" to create one.</MudText>
+                    }
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+
+        <!-- Trade Levels -->
+        <MudItem xs="12" md="6">
+            <MudCard Elevation="2" Class="mb-3">
+                <MudCardHeader><CardHeaderContent><MudText Typo="Typo.h6">Trade Levels</MudText></CardHeaderContent></MudCardHeader>
+                <MudCardContent>
+                    @if (_aiReport?.TradeLevels != null)
+                    {
+                        <MudSimpleTable Dense="true">
+                            <tbody>
+                                <tr><td><MudText Color="MudBlazor.Color.Success">Entry</MudText></td><td>@_aiReport.TradeLevels.Entry.ToString("C2")</td></tr>
+                                <tr><td><MudText Color="MudBlazor.Color.Error">Stop Loss</MudText></td><td>@_aiReport.TradeLevels.StopLoss.ToString("C2")</td></tr>
+                                <tr><td><MudText Color="MudBlazor.Color.Success">Profit Target</MudText></td><td>@_aiReport.TradeLevels.ProfitTarget.ToString("C2")</td></tr>
+                                <tr><td><MudText>Exit Price</MudText></td><td>@_aiReport.TradeLevels.ExitPrice.ToString("C2")</td></tr>
+                            </tbody>
+                        </MudSimpleTable>
+                        <MudDivider Class="my-2" />
+                        <MudText Typo="Typo.caption">@_aiReport.TradeLevels.Rationale</MudText>
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.body2">No trade levels available.</MudText>
+                    }
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+
         <!-- Sentiment Details -->
         <MudItem xs="12">
             <MudCard Elevation="2" Class="mb-3">
@@ -247,6 +319,8 @@ else
     private ApexChartOptions<IndicatorData> _macdOptions = new();
 
     private List<MarketAnalysis.Core.Entities.WatchList> _watchLists = new();
+    private AiAnalysisResponseDto? _aiReport;
+    private bool _generatingReport = false;
 
     protected override async Task OnInitializedAsync()
     {
@@ -373,6 +447,40 @@ else
             Snackbar.Add($"Error: {ex.Message}", Severity.Error);
         }
         finally { _loading = false; }
+    }
+
+    private async Task GenerateReport()
+    {
+        _generatingReport = true;
+        try
+        {
+            var response = await Http.PostAsync($"/api/ai/report/{Ticker}", null);
+            if (response.IsSuccessStatusCode)
+            {
+                _aiReport = await response.Content.ReadFromJsonAsync<AiAnalysisResponseDto>();
+                Snackbar.Add("AI report generated successfully", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add("Failed to generate AI report", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to generate AI report: {ex.Message}", Severity.Error);
+        }
+        _generatingReport = false;
+    }
+
+    private MudBlazor.Color GetRecommendationColor(string recommendation)
+    {
+        return recommendation.ToLowerInvariant() switch
+        {
+            "buy" => MudBlazor.Color.Success,
+            "sell" => MudBlazor.Color.Error,
+            "hold" => MudBlazor.Color.Warning,
+            _ => MudBlazor.Color.Default
+        };
     }
 
     private void ConfigureChartOptions()

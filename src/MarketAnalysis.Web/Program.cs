@@ -31,6 +31,14 @@ builder.Services.AddScoped<IScanReportRepository, ScanReportRepository>();
 builder.Services.AddScoped<IWatchListRepository, WatchListRepository>();
 builder.Services.AddScoped<IUserScanConfigRepository, UserScanConfigRepository>();
 builder.Services.AddScoped<IIndexDefinitionRepository, IndexDefinitionRepository>();
+builder.Services.AddScoped<IAiPredictionRepository, AiPredictionRepository>();
+
+// ----- HttpClient for Blazor component self-calls -----
+builder.Services.AddScoped(sp =>
+{
+    var nav = sp.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>();
+    return new HttpClient { BaseAddress = new Uri(nav.BaseUri) };
+});
 
 // ----- Python Service HTTP Client with Polly -----
 builder.Services.AddHttpClient<IPythonServiceClient, PythonServiceClient>(client =>
@@ -63,6 +71,7 @@ builder.Services.AddSingleton<IScanProgressTracker, ScanProgressTracker>();
 builder.Services.AddScoped<IMarketDataIngestionService, MarketDataIngestionService>();
 builder.Services.AddScoped<IReportGenerationService, ReportGenerationService>();
 builder.Services.AddScoped<IDailyScanService, DailyScanService>();
+builder.Services.AddScoped<IPredictionEvaluationService, PredictionEvaluationService>();
 
 // ----- ML Retraining Service (reuses ML Service HTTP client) -----
 builder.Services.AddHttpClient<IMLRetrainingService, MLRetrainingService>(client =>
@@ -140,6 +149,13 @@ RecurringJob.AddOrUpdate<IMLRetrainingService>(
     "monthly-ml-retrain",
     service => service.RunRetrainingAsync(new List<string> { "xgboost", "lstm", "ensemble" }, CancellationToken.None),
     "0 1 1-7 * 0",
+    new RecurringJobOptions { TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time") });
+
+// Daily prediction evaluation: 7 PM ET (after daily scan completes)
+RecurringJob.AddOrUpdate<IPredictionEvaluationService>(
+    "daily-prediction-eval",
+    service => service.EvaluateAsync(CancellationToken.None),
+    "0 19 * * *",
     new RecurringJobOptions { TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time") });
 
 app.MapRazorComponents<App>()

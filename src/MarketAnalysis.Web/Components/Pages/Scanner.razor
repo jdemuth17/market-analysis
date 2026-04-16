@@ -69,7 +69,7 @@
                                     @foreach (var m in _topMovers.TopGainers)
                                     {
                                         <tr style="cursor:pointer" @onclick="() => GoToStock(m.Ticker)">
-                                            <td><strong>@m.Ticker</strong><br /><MudText Typo="Typo.caption">@TruncName(m.Name)</MudText></td>
+                                            <td><strong>@m.Ticker</strong> <a href="https://finance.yahoo.com/quote/@m.Ticker" target="_blank" @onclick:stopPropagation="true"><MudIcon Icon="@Icons.Material.Filled.OpenInNew" Size="Size.Small" Style="opacity: 0.7; font-size: 14px;" /></a><br /><MudText Typo="Typo.caption">@TruncName(m.Name)</MudText></td>
                                             <td>@FormatPrice(m.CurrentPrice)</td>
                                             <td><MudChip T="string" Size="Size.Small" Color="Color.Success">+@m.ChangePercent?.ToString("F2")%</MudChip></td>
                                         </tr>
@@ -97,7 +97,7 @@
                                     @foreach (var m in _topMovers.TopLosers)
                                     {
                                         <tr style="cursor:pointer" @onclick="() => GoToStock(m.Ticker)">
-                                            <td><strong>@m.Ticker</strong><br /><MudText Typo="Typo.caption">@TruncName(m.Name)</MudText></td>
+                                            <td><strong>@m.Ticker</strong> <a href="https://finance.yahoo.com/quote/@m.Ticker" target="_blank" @onclick:stopPropagation="true"><MudIcon Icon="@Icons.Material.Filled.OpenInNew" Size="Size.Small" Style="opacity: 0.7; font-size: 14px;" /></a><br /><MudText Typo="Typo.caption">@TruncName(m.Name)</MudText></td>
                                             <td>@FormatPrice(m.CurrentPrice)</td>
                                             <td><MudChip T="string" Size="Size.Small" Color="Color.Error">@m.ChangePercent?.ToString("F2")%</MudChip></td>
                                         </tr>
@@ -125,7 +125,7 @@
                                     @foreach (var m in _topMovers.MostActive)
                                     {
                                         <tr style="cursor:pointer" @onclick="() => GoToStock(m.Ticker)">
-                                            <td><strong>@m.Ticker</strong><br /><MudText Typo="Typo.caption">@TruncName(m.Name)</MudText></td>
+                                            <td><strong>@m.Ticker</strong> <a href="https://finance.yahoo.com/quote/@m.Ticker" target="_blank" @onclick:stopPropagation="true"><MudIcon Icon="@Icons.Material.Filled.OpenInNew" Size="Size.Small" Style="opacity: 0.7; font-size: 14px;" /></a><br /><MudText Typo="Typo.caption">@TruncName(m.Name)</MudText></td>
                                             <td>@FormatPrice(m.CurrentPrice)</td>
                                             <td><MudChip T="string" Size="Size.Small" Color="Color.Warning">@m.VolumeRatio?.ToString("F1")x</MudChip></td>
                                         </tr>
@@ -186,7 +186,7 @@
             <MudText Typo="Typo.caption" Class="mb-2">Found @_patterns.Count pattern(s) in the last @_patternDays days</MudText>
             <MudDataGrid Items="_patterns" Dense="true" Hover="true" Striped="true" RowClick="OnPatternRowClick" T="PatternScanResultDto">
                 <Columns>
-                    <PropertyColumn Property="x => x.Ticker" Title="Ticker" />
+                    <TemplateColumn Title="Ticker"><CellTemplate><strong>@context.Item.Ticker</strong> <a href="https://finance.yahoo.com/quote/@context.Item.Ticker" target="_blank" @onclick:stopPropagation="true"><MudIcon Icon="@Icons.Material.Filled.OpenInNew" Size="Size.Small" Style="opacity: 0.7; font-size: 14px;" /></a></CellTemplate></TemplateColumn>
                     <PropertyColumn Property="x => x.StockName" Title="Name" />
                     <TemplateColumn Title="Price">
                         <CellTemplate>@FormatPriceDecimal(context.Item.CurrentPrice)</CellTemplate>
@@ -242,7 +242,7 @@
                     <TemplateColumn Title="#" SortBy="x => _prospects.IndexOf(x) + 1">
                         <CellTemplate>@(_prospects.IndexOf(context.Item) + 1)</CellTemplate>
                     </TemplateColumn>
-                    <PropertyColumn Property="x => x.Ticker" Title="Ticker" />
+                    <TemplateColumn Title="Ticker"><CellTemplate><strong>@context.Item.Ticker</strong> <a href="https://finance.yahoo.com/quote/@context.Item.Ticker" target="_blank" @onclick:stopPropagation="true"><MudIcon Icon="@Icons.Material.Filled.OpenInNew" Size="Size.Small" Style="opacity: 0.7; font-size: 14px;" /></a></CellTemplate></TemplateColumn>
                     <PropertyColumn Property="x => x.StockName" Title="Name" />
                     <TemplateColumn Title="Price">
                         <CellTemplate>@FormatPriceDecimal(context.Item.CurrentPrice)</CellTemplate>
@@ -312,6 +312,7 @@
     private List<BestProspectDto> _prospects = new();
 
     private void GoToStock(string ticker) => Nav.NavigateTo($"/stock/{ticker}");
+    private void GoToYahoo(string ticker) => Nav.NavigateTo($"https://finance.yahoo.com/quote/{ticker}", forceLoad: true);
 
     // --- Top Movers ---
     private async Task LoadTopMovers()
@@ -351,6 +352,7 @@
     {
         _patternsLoading = true;
         _patternsSearched = true;
+        StateHasChanged();
         try
         {
             var signals = await TechRepo.GetAllRecentAsync(_patternDays);
@@ -383,6 +385,7 @@
     {
         _prospectsLoading = true;
         _prospectsSearched = true;
+        StateHasChanged();
         try
         {
             var reports = await ReportRepo.GetRecentAsync(8);

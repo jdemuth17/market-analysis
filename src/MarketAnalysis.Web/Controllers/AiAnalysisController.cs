@@ -1,0 +1,125 @@
+using System.Text.Json;
+using MarketAnalysis.Core.DTOs;
+using MarketAnalysis.Core.Entities;
+using MarketAnalysis.Core.Interfaces;
+using Microsoft.AspNetCore.Mvc;
+
+namespace MarketAnalysis.Web.Controllers;
+
+[ApiController]
+[Route("api/ai")]
+public class AiAnalysisController : ControllerBase
+{
+    private readonly IAiPredictionRepository _predictionRepo;
+    private readonly IPythonServiceClient _pythonClient;
+    private readonly IPredictionEvaluationService _evaluationService;
+    private readonly IStockRepository _stockRepo;
+    private readonly IPriceHistoryRepository _priceRepo;
+    private readonly IFundamentalRepository _fundRepo;
+    private readonly ISentimentRepository _sentimentRepo;
+    private readonly ITechnicalSignalRepository _technicalRepo;
+
+    public AiAnalysisController(
+        IAiPredictionRepository predictionRepo,
+        IPythonServiceClient pythonClient,
+        IPredictionEvaluationService evaluationService,
+        IStockRepository stockRepo,
+        IPriceHistoryRepository priceRepo,
+        IFundamentalRepository fundRepo,
+        ISentimentRepository sentimentRepo,
+        ITechnicalSignalRepository technicalRepo)
+    {
+        _predictionRepo = predictionRepo;
+        _pythonClient = pythonClient;
+        _evaluationService = evaluationService;
+        _stockRepo = stockRepo;
+        _priceRepo = priceRepo;
+        _fundRepo = fundRepo;
+        _sentimentRepo = sentimentRepo;
+        _technicalRepo = technicalRepo;
+    }
+
+    [HttpGet("predictions/{ticker}")]
+    public async Task<ActionResult<List<PredictionHistoryDto>>> GetPredictions(string ticker)
+    {
+        var stock = await _stockRepo.GetByTickerAsync(ticker);
+        if (stock == null) return NotFound();
+
+        var predictions = await _predictionRepo.GetByStockAsync(stock.Id);
+        var dtos = predictions.Select(p => new PredictionHistoryDto(
+            p.Id, ticker, p.PredictionDate, p.PredictedDirection, p.Confidence,
+            p.EntryPrice, p.StopLoss, p.ProfitTarget,
+            p.OutcomeAt5Days, p.OutcomeAt10Days, p.OutcomeAt30Days
+        )).ToList();
+
+        return Ok(dtos);
+    }
+
+    [HttpGet("accuracy")]
+    public async Task<ActionResult<PredictionAccuracyDto>> GetAccuracy()
+    {
+        var accuracy = await _evaluationService.GetAccuracyAsync();
+        return Ok(accuracy);
+    }
+
+    [HttpPost("report/{ticker}")]
+    public async Task<ActionResult<AiAnalysisResponseDto>> GenerateReport(string ticker)
+    {
+        var stock = await _stockRepo.GetByTickerAsync(ticker);
+        if (stock == null) return NotFound();
+
+        var prices = await _priceRepo.GetByStockAsync(stock.Id, 30);
+        var fund = await _fundRepo.GetLatestByStockAsync(stock.Id);
+        var sentiment = await _sentimentRepo.GetLatestByStockAsync(stock.Id);
+        var technicals = await _technicalRepo.GetRecentByStockAsync(stock.Id);
+
+        var request = new AiAnalysisRequestDto(
+            ticker,
+            prices.Select(p => new OHLCVBarDto(p.Date, p.Open, p.High, p.Low, p.Close, p.AdjClose, p.Volume)).ToList(),
+            new Dictionary<string, object>
+            {
+                ["detected_patterns"] = technicals.Select(t => new { pattern_type = t.PatternType.ToString(), confidence = t.Confidence }).ToList()
+            },
+            new Dictionary<string, object>
+            {
+                ["pe_ratio"] = fund?.PeRatio ?? 0,
+                ["debt_to_equity"] = fund?.DebtToEquity ?? 0
+            },
+            new Dictionary<string, object>
+            {
+                ["positive_score"] = sentiment.FirstOrDefault()?.PositiveScore ?? 0,
+                ["negative_score"] = sentiment.FirstOrDefault()?.NegativeScore ?? 0
+            }
+        );
+
+        var report = await _pythonClient.GenerateAiReportAsync(request);
+
+        var direction = report.Outlook.Contains("bull", StringComparison.OrdinalIgnoreCase) ? "bullish" :
+                       report.Outlook.Contains("bear", StringComparison.OrdinalIgnoreCase) ? "bearish" : "neutral";
+
+        var prediction = new AiPrediction
+        {
+            StockId = stock.Id,
+            PredictionDate = DateOnly.FromDateTime(DateTime.UtcNow),
+            ModelUsed = "deepseek-v3.2",
+            Summary = report.Summary,
+            Outlook = report.Outlook,
+            Recommendation = report.Recommendation,
+            Confidence = report.Confidence,
+            KeyFactorsJson = JsonSerializer.Serialize(report.KeyFactors),
+            RiskFactorsJson = JsonSerializer.Serialize(report.RiskFactors),
+            EntryPrice = report.TradeLevels.Entry,
+            StopLoss = report.TradeLevels.StopLoss,
+            ProfitTarget = report.TradeLevels.ProfitTarget,
+            ExitPrice = report.TradeLevels.ExitPrice,
+            TradeRationale = report.TradeLevels.Rationale,
+            PredictedDirection = direction,
+            IsAutoGenerated = false,
+            CreatedAtUtc = DateTime.UtcNow
+        };
+
+        await _predictionRepo.AddAsync(prediction);
+
+        return Ok(report);
+    }
+}

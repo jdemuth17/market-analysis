@@ -22,6 +22,7 @@ public class MarketAnalysisDbContext : DbContext
     public DbSet<WatchList> WatchLists => Set<WatchList>();
     public DbSet<WatchListItem> WatchListItems => Set<WatchListItem>();
     public DbSet<IndexDefinition> IndexDefinitions => Set<IndexDefinition>();
+    public DbSet<AiPrediction> AiPredictions => Set<AiPrediction>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -211,6 +212,32 @@ public class MarketAnalysisDbContext : DbContext
         {
             entity.HasIndex(e => e.Name).IsUnique();
             entity.Property(e => e.Name).HasMaxLength(50).IsRequired();
+        });
+
+        // --- AiPrediction ---
+        modelBuilder.Entity<AiPrediction>(entity =>
+        {
+            entity.HasIndex(e => new { e.StockId, e.PredictionDate });
+            entity.HasIndex(e => e.PredictionDate);
+            entity.HasIndex(e => e.EvaluatedAt);
+
+            entity.Property(e => e.ModelUsed).HasMaxLength(50);
+            entity.Property(e => e.Recommendation).HasMaxLength(20);
+            entity.Property(e => e.PredictedDirection).HasMaxLength(20);
+            entity.Property(e => e.EntryPrice).HasColumnType("decimal(18,4)");
+            entity.Property(e => e.StopLoss).HasColumnType("decimal(18,4)");
+            entity.Property(e => e.ProfitTarget).HasColumnType("decimal(18,4)");
+            entity.Property(e => e.ExitPrice).HasColumnType("decimal(18,4)");
+            entity.Property(e => e.ActualPriceAt5Days).HasColumnType("decimal(18,4)");
+            entity.Property(e => e.ActualPriceAt10Days).HasColumnType("decimal(18,4)");
+            entity.Property(e => e.ActualPriceAt30Days).HasColumnType("decimal(18,4)");
+            entity.Property(e => e.KeyFactorsJson).HasColumnType("jsonb");
+            entity.Property(e => e.RiskFactorsJson).HasColumnType("jsonb");
+
+            entity.HasOne(e => e.Stock)
+                .WithMany()
+                .HasForeignKey(e => e.StockId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         // Seed default data

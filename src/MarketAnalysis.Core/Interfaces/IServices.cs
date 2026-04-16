@@ -17,6 +17,9 @@ public interface IPythonServiceClient
     Task<BatchFundamentalScoreResponseDto> ScoreFundamentalsBatchAsync(List<FundamentalDataDto> items);
     Task<List<string>> GetTickerListAsync(string indexName);
     Task<bool> HealthCheckAsync();
+    Task<AiAnalysisResponseDto> GenerateAiReportAsync(AiAnalysisRequestDto request);
+    Task<TradeLevelDto> GenerateTradeLevelsAsync(AiAnalysisRequestDto request);
+    Task<List<AiAnalysisResponseDto>> GenerateBatchReportsAsync(List<AiAnalysisRequestDto> requests);
 }
 
 /// <summary>Orchestrates data ingestion from Python service to database.</summary>
@@ -76,4 +79,11 @@ public interface IScanProgressTracker
     void IncrementTicker();
     void Complete();
     void Fail(string errorMessage);
+}
+
+/// <summary>Evaluates AI predictions at 5/10/30 day horizons.</summary>
+public interface IPredictionEvaluationService
+{
+    Task EvaluateAsync(CancellationToken cancellationToken = default);
+    Task<DTOs.PredictionAccuracyDto> GetAccuracyAsync();
 }

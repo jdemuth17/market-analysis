@@ -32,6 +32,26 @@ class Settings(BaseSettings):
     finbert_gpu_batch_size: int = 64
     finbert_max_length: int = 512
 
+    # Ollama Cloud
+    ollama_api_key: str = ""
+    ollama_base_url: str = "https://api.ollama.com"
+    ollama_sentiment_model: str = "qwen3.5"
+    ollama_reasoning_model: str = "deepseek-v3.2"
+    ollama_queue_max: int = 1000
+    ollama_queue_ttl_seconds: int = 3600
+    ollama_retry_max_attempts: int = 3
+    ollama_retry_base_delay: float = 1.0
+    ollama_timeout_seconds: int = 60
+
+    # AI Analysis
+    ai_price_bar_count: int = 30
+    ai_max_prompt_tokens: int = 4000
+    ai_batch_max: int = 20
+    ai_auto_report_count: int = 5
+
+    # Prediction Evaluation
+    eval_neutral_threshold: float = 0.005
+
     # Ticker list cache
     ticker_list_cache_hours: int = 168  # 1 week
 

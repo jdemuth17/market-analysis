@@ -98,12 +98,10 @@ async def collect_sentiment_texts(request: CollectSentimentRequest):
 @router.post("/analyze", response_model=AnalyzeSentimentResponse)
 async def analyze_texts(request: AnalyzeSentimentRequest):
     """Run sentiment analysis on provided texts."""
-    analyzer = SentimentAnalyzer.get_instance()
+    from main import app
+    analyzer = SentimentAnalyzer(ollama=app.state.ollama_client)
 
-    results = await asyncio.get_event_loop().run_in_executor(
-        None,
-        lambda: analyzer.analyze_texts(request.texts, use_vader=request.low_resource_mode),
-    )
+    results = await analyzer.analyze_texts(request.texts, use_vader=request.low_resource_mode)
 
     return AnalyzeSentimentResponse(results=results)
 
@@ -113,10 +111,11 @@ async def full_sentiment_pipeline(request: FullSentimentRequest):
     """Two-phase pipeline: parallel text collection, then single batched inference.
 
     Phase 1 collects texts from all tickers concurrently.
-    Phase 2 runs one inference pass (FinBERT or VADER) over all collected texts.
+    Phase 2 runs one inference pass (Ollama or VADER) over all collected texts.
     Results are regrouped by (ticker, source) for the response.
     """
-    analyzer = SentimentAnalyzer.get_instance()
+    from main import app
+    analyzer = SentimentAnalyzer(ollama=app.state.ollama_client)
     loop = asyncio.get_event_loop()
 
     # --- Phase 1: Parallel text collection across all tickers ---
@@ -143,12 +142,11 @@ async def full_sentiment_pipeline(request: FullSentimentRequest):
     # --- Phase 2: Single batched inference over all texts ---
     all_text_strings = [item[2] for item in indexed_items]
     logger.info(
-        f"Phase 2: Running analysis ({'VADER' if request.low_resource_mode else 'FinBERT'}) on {len(all_text_strings)} texts "
+        f"Phase 2: Running analysis ({'VADER' if request.low_resource_mode else 'Ollama'}) on {len(all_text_strings)} texts "
         f"(device={analyzer.device}, batch_size={analyzer.batch_size})"
     )
-    all_results = await loop.run_in_executor(
-        None,
-        lambda: analyzer.analyze_texts(all_text_strings, use_vader=request.low_resource_mode),
+    all_results = await analyzer.analyze_texts(
+        all_text_strings, use_vader=request.low_resource_mode
     )
 
     # --- Regroup results by (ticker, source) ---

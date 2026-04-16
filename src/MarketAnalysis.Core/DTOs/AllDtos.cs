@@ -355,3 +355,46 @@ public record MLRetrainingStatusDto(
     string? StartedAt,
     string? ErrorMessage
 );
+
+// --- AI Analysis DTOs ---
+
+public record AiAnalysisRequestDto(
+    string Ticker,
+    List<OHLCVBarDto> PriceHistory,
+    Dictionary<string, object> Technicals,
+    Dictionary<string, object> Fundamentals,
+    Dictionary<string, object> Sentiment
+);
+
+public record TradeLevelDto(
+    decimal Entry,
+    decimal StopLoss,
+    decimal ProfitTarget,
+    decimal ExitPrice,
+    string Rationale
+);
+
+public record AiAnalysisResponseDto(
+    string Summary,
+    string Outlook,
+    string Recommendation,
+    double Confidence,
+    List<string> KeyFactors,
+    List<string> RiskFactors,
+    TradeLevelDto TradeLevels
+);
+
+public record PredictionHistoryDto(
+    long Id, string Ticker, DateOnly Date, string Direction, double Confidence,
+    decimal EntryPrice, decimal StopLoss, decimal ProfitTarget,
+    string? OutcomeAt5Days, string? OutcomeAt10Days, string? OutcomeAt30Days
+);
+
+public record PredictionAccuracyDto(
+    int TotalPredictions,
+    double AccuracyAt5Days,
+    double AccuracyAt10Days,
+    double AccuracyAt30Days,
+    double AvgConfidence,
+    double HighConfidenceAccuracy
+);

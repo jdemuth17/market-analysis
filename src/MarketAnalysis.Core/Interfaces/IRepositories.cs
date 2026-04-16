@@ -82,3 +82,11 @@ public interface IIndexDefinitionRepository : IRepository<IndexDefinition>
     Task<List<IndexDefinition>> GetEnabledAsync();
     Task<IndexDefinition?> GetByNameAsync(string name);
 }
+
+public interface IAiPredictionRepository : IRepository<AiPrediction>
+{
+    Task<List<AiPrediction>> GetByStockAsync(int stockId, int limit = 50);
+    Task<List<AiPrediction>> GetRecentAsync(int days = 30);
+    Task<List<AiPrediction>> GetUnevaluatedAsync(int horizonDays);
+    Task<DTOs.PredictionAccuracyDto> GetAccuracyStatsAsync();
+}

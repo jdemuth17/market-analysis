@@ -17,6 +17,8 @@ public class ReportGenerationService : IReportGenerationService
     private readonly IScanReportRepository _reportRepo;
     private readonly IMLServiceClient? _mlClient;
     private readonly ILogger<ReportGenerationService> _logger;
+    private readonly IPythonServiceClient? _pythonClient;
+    private readonly IAiPredictionRepository? _aiPredictionRepo;
 
     public ReportGenerationService(
         IStockRepository stockRepo,
@@ -26,7 +28,9 @@ public class ReportGenerationService : IReportGenerationService
         ISentimentRepository sentimentRepo,
         IScanReportRepository reportRepo,
         ILogger<ReportGenerationService> logger,
-        IMLServiceClient? mlClient = null)
+        IMLServiceClient? mlClient = null,
+        IPythonServiceClient? pythonClient = null,
+        IAiPredictionRepository? aiPredictionRepo = null)
     {
         _stockRepo = stockRepo;
         _priceRepo = priceRepo;
@@ -36,6 +40,8 @@ public class ReportGenerationService : IReportGenerationService
         _reportRepo = reportRepo;
         _logger = logger;
         _mlClient = mlClient;
+        _pythonClient = pythonClient;
+        _aiPredictionRepo = aiPredictionRepo;
     }
 
     public async Task<List<ScanReport>> GenerateReportsAsync(UserScanConfig config, DateOnly reportDate)
@@ -206,6 +212,95 @@ public class ReportGenerationService : IReportGenerationService
             _logger.LogInformation("Report {Category}: {Matches} matches ({Method})",
                 category, ranked.Count,
                 mlPredictions != null ? "ML" : "legacy");
+        }
+
+        // Auto-generate AI reports for top stocks per category
+        if (_pythonClient != null && _aiPredictionRepo != null)
+        {
+            try
+            {
+                var topTickers = new HashSet<string>();
+                foreach (var report in reports)
+                {
+                    var top5 = report.Entries
+                        .OrderByDescending(e => e.CompositeScore)
+                        .Take(5)
+                        .Select(e => activeStocks.First(s => s.Id == e.StockId).Ticker)
+                        .ToList();
+                    foreach (var ticker in top5) topTickers.Add(ticker);
+                }
+
+                _logger.LogInformation("Generating AI reports for {Count} top stocks", topTickers.Count);
+
+                var aiRequests = new List<AiAnalysisRequestDto>();
+                foreach (var ticker in topTickers)
+                {
+                    var stock = activeStocks.First(s => s.Ticker == ticker);
+                    var prices = await _priceRepo.GetByStockAsync(stock.Id, 30);
+                    var fund = allFundamentals.GetValueOrDefault(stock.Id);
+                    var sentiment = allSentiment.GetValueOrDefault(stock.Id, new List<SentimentScore>());
+                    var technicals = allSignals.GetValueOrDefault(stock.Id, new List<TechnicalSignal>());
+
+                    var request = new AiAnalysisRequestDto(
+                        ticker,
+                        prices.Select(p => new OHLCVBarDto(p.Date, p.Open, p.High, p.Low, p.Close, p.AdjClose, p.Volume)).ToList(),
+                        new Dictionary<string, object>
+                        {
+                            ["detected_patterns"] = technicals.Select(t => new { pattern_type = t.PatternType.ToString(), confidence = t.Confidence }).ToList()
+                        },
+                        new Dictionary<string, object>
+                        {
+                            ["pe_ratio"] = fund?.PeRatio ?? 0,
+                            ["debt_to_equity"] = fund?.DebtToEquity ?? 0
+                        },
+                        new Dictionary<string, object>
+                        {
+                            ["positive_score"] = sentiment.FirstOrDefault()?.PositiveScore ?? 0,
+                            ["negative_score"] = sentiment.FirstOrDefault()?.NegativeScore ?? 0
+                        }
+                    );
+                    aiRequests.Add(request);
+                }
+
+                var aiReports = await _pythonClient.GenerateBatchReportsAsync(aiRequests);
+                var tickerList = topTickers.ToList();
+                for (int i = 0; i < aiReports.Count; i++)
+                {
+                    var aiReport = aiReports[i];
+                    var ticker = tickerList[i];
+                    var stock = activeStocks.First(s => s.Ticker == ticker);
+
+                    var direction = aiReport.Outlook.Contains("bull", StringComparison.OrdinalIgnoreCase) ? "bullish" :
+                                   aiReport.Outlook.Contains("bear", StringComparison.OrdinalIgnoreCase) ? "bearish" : "neutral";
+
+                    var prediction = new AiPrediction
+                    {
+                        StockId = stock.Id,
+                        PredictionDate = reportDate,
+                        ModelUsed = "deepseek-v3.2",
+                        Summary = aiReport.Summary,
+                        Outlook = aiReport.Outlook,
+                        Recommendation = aiReport.Recommendation,
+                        Confidence = aiReport.Confidence,
+                        KeyFactorsJson = JsonSerializer.Serialize(aiReport.KeyFactors),
+                        RiskFactorsJson = JsonSerializer.Serialize(aiReport.RiskFactors),
+                        EntryPrice = aiReport.TradeLevels.Entry,
+                        StopLoss = aiReport.TradeLevels.StopLoss,
+                        ProfitTarget = aiReport.TradeLevels.ProfitTarget,
+                        ExitPrice = aiReport.TradeLevels.ExitPrice,
+                        TradeRationale = aiReport.TradeLevels.Rationale,
+                        PredictedDirection = direction,
+                        IsAutoGenerated = true,
+                        CreatedAtUtc = DateTime.UtcNow
+                    };
+                    await _aiPredictionRepo.AddAsync(prediction);
+                }
+                _logger.LogInformation("Generated {Count} AI reports", aiReports.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to generate auto AI reports");
+            }
         }
 
         return reports;

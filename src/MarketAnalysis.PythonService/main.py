@@ -8,7 +8,7 @@ import os
 for var in ("CURL_CA_BUNDLE", "REQUESTS_CA_BUNDLE"):
     os.environ.pop(var, None)
 
-from routers import market_data, technicals, fundamentals, sentiment, scanner
+from routers import market_data, technicals, fundamentals, sentiment, scanner, ai_analysis
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -18,12 +18,19 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
     logger.info("Starting Market Analysis Python Service...")
-    # Pre-load FinBERT model on startup
-    from services.sentiment_analyzer import SentimentAnalyzer
-    analyzer = SentimentAnalyzer.get_instance()
-    logger.info("FinBERT model loaded successfully.")
+    from services.ollama_client import OllamaClient
+    from config import get_settings
+    
+    settings = get_settings()
+    app.state.ollama_client = OllamaClient(settings)
+    await app.state.ollama_client.start_queue_consumer()
+    logger.info("Ollama client initialized and queue consumer started.")
+    
     yield
+    
     logger.info("Shutting down Market Analysis Python Service...")
+    if hasattr(app.state, 'ollama_client'):
+        await app.state.ollama_client.stop()
 
 
 app = FastAPI(
@@ -46,6 +53,7 @@ app.include_router(technicals.router, prefix="/api/technicals", tags=["Technical
 app.include_router(fundamentals.router, prefix="/api/fundamentals", tags=["Fundamentals"])
 app.include_router(sentiment.router, prefix="/api/sentiment", tags=["Sentiment Analysis"])
 app.include_router(scanner.router, prefix="/api/scanner", tags=["Scanner"])
+app.include_router(ai_analysis.router, prefix="/api/ai-analysis", tags=["AI Analysis"])
 
 
 @app.get("/api/health")
